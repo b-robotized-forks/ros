@@ -40,6 +40,7 @@
 #include <future>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <robotiq_driver/hardware_parameters.hpp>
@@ -65,6 +66,11 @@ inline constexpr const char* kObjectStatusInterface = "object_status";
 inline constexpr const char* kMotorCurrentInterface = "motor_current";
 inline constexpr const char* kGripperFaultInterface = "gripper_fault";
 inline constexpr const char* kGripperFaultSeverityInterface = "gripper_fault_severity";
+inline constexpr const char* kMaxVelocityInterface = "set_gripper_max_velocity";
+inline constexpr const char* kMaxEffortInterface = "set_gripper_max_effort";
+inline constexpr const char* kReactivateGripperGpio = "reactivate_gripper";
+inline constexpr const char* kReactivateCmdInterface = "reactivate_gripper_cmd";
+inline constexpr const char* kReactivateResponseInterface = "reactivate_gripper_response";
 
 //! ros2_control hardware interface for a Robotiq 2F gripper, driven through the
 //! gripper SDK.
@@ -121,18 +127,38 @@ public:
    ROBOTIQ_DRIVER_PUBLIC
    CallbackReturn on_error(const rclcpp_lifecycle::State& previous_state) override;
 
+#ifdef ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES
+   /**
+    * The framework exports what the description declares; these add the rest,
+    * so that every interface the driver serves exists whatever the description
+    * says.
+    */
+   ROBOTIQ_DRIVER_PUBLIC
+   std::vector<hardware_interface::InterfaceDescription> export_unlisted_state_interface_descriptions() override;
+
+   ROBOTIQ_DRIVER_PUBLIC
+   std::vector<hardware_interface::InterfaceDescription> export_unlisted_command_interface_descriptions() override;
+
    /**
     * This method exposes position, velocity, motor current and object status of
     * joints for reading.
     */
    ROBOTIQ_DRIVER_PUBLIC
-   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
+   std::vector<hardware_interface::StateInterface::ConstSharedPtr> on_export_state_interfaces() override;
 
    /**
     * This method exposes the joints targets for writing.
     */
    ROBOTIQ_DRIVER_PUBLIC
+   std::vector<hardware_interface::CommandInterface::SharedPtr> on_export_command_interfaces() override;
+#else
+   // Humble EOL: delete these two declarations and their definitions.
+   ROBOTIQ_DRIVER_PUBLIC
+   std::vector<hardware_interface::StateInterface> export_state_interfaces() override;
+
+   ROBOTIQ_DRIVER_PUBLIC
    std::vector<hardware_interface::CommandInterface> export_command_interfaces() override;
+#endif
 
    /**
     * Reset and activate the gripper, blocking until it reports completion.
@@ -199,8 +225,8 @@ protected:
    double gripper_object_status_ = std::numeric_limits<double>::quiet_NaN();
 
    // gFLT and its severity, both decoded through the SDK so that no consumer
-   // re-derives either from the raw byte. A StateInterface binds to each member
-   // by address, so they are doubles like the readings around them.
+   // re-derives either from the raw byte. They are doubles like the readings
+   // around them.
    //
    // The members say which fault they hold; the type does not, so the
    // controller's own fault can reuse it.
@@ -226,6 +252,20 @@ protected:
    double reactivate_gripper_response_ = 0.0;
    double gripper_force_ = 0.0;
    double gripper_speed_ = 0.0;
+
+private:
+   // From Jazzy on the framework owns the interface values, and these copy them
+   // to and from the members above by name. Humble binds the members by
+   // address, so there they do nothing.
+   void pullCommands();
+   void pullReactivationRequest();
+   void pushStates();
+
+   // One command value of the driver's own: a seed at export, or the
+   // reactivation handshake. Commands never go back wholesale: a controller
+   // may write one between the pull and the push, and the stale copy would
+   // overwrite it.
+   void pushCommand(const std::string& prefix, const char* name, double value);
 };
 
 } // namespace robotiq_driver

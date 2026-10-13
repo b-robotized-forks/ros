@@ -31,8 +31,8 @@
 The two hardware plugins need different interface sets, and getting it wrong is
 silent until a controller fails to activate at runtime:
 
-* The real driver exports set_gripper_max_effort / set_gripper_max_velocity from
-  export_command_interfaces() rather than from the URDF, and its on_init rejects a
+* The real driver exports set_gripper_max_effort / set_gripper_max_velocity
+  itself rather than from the URDF, and its on_init rejects a
   joint that declares more than one command interface.
 * Mock hardware exposes only what the URDF declares, so those two interfaces have
   to be declared there or parallel_gripper_action_controller cannot claim them and

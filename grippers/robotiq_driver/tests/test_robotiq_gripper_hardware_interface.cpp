@@ -36,10 +36,12 @@
 #include <limits>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <hardware_interface/component_parser.hpp>
 #include <hardware_interface/resource_manager.hpp>
+#include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <hardware_interface/types/lifecycle_state_names.hpp>
 #include <lifecycle_msgs/msg/state.hpp>
 #include <rclcpp_lifecycle/state.hpp>
@@ -48,8 +50,6 @@
 #else
 #include <hardware_interface/version.h>
 #endif
-
-#include <robotiq_driver/rclcpp_logger.hpp>
 
 #include <rclcpp/node.hpp>
 
@@ -306,6 +306,49 @@ TEST(TestRobotiqGripperHardwareInterface, FaultInterfacesReadNoFaultOnAHealthyGr
    EXPECT_DOUBLE_EQ(static_cast<double>(Robotiq::FaultSeverity::None), compat::getValue(severity).value_or(-1.0));
 }
 
+/**
+ * The reactivation handshake runs through command interfaces in both
+ * directions: the controller raises the request, the driver clears it and
+ * later reports the result.
+ */
+TEST(TestRobotiqGripperHardwareInterface, ReactivationRoundTripsThroughTheCommandInterfaces)
+{
+   const std::string urdf = minimalRobotUrdf(R"(<param name="use_dummy">true</param>)");
+
+   rclcpp::Node node{"test_robotiq_gripper_hardware_interface"};
+
+#if HARDWARE_INTERFACE_VERSION_GTE(4, 13, 0)
+   hardware_interface::ResourceManager rm(urdf, node.get_node_clock_interface(), node.get_node_logging_interface());
+#else
+   hardware_interface::ResourceManager rm(urdf);
+#endif
+
+   rclcpp_lifecycle::State active{lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
+                                  hardware_interface::lifecycle_state_names::ACTIVE};
+   ASSERT_EQ(hardware_interface::return_type::OK, rm.set_component_state(kComponentName, active));
+
+   const rclcpp::Time time{0};
+   const rclcpp::Duration period = rclcpp::Duration::from_seconds(0.01);
+
+   auto request = rm.claim_command_interface("reactivate_gripper/reactivate_gripper_cmd");
+   auto response = rm.claim_command_interface("reactivate_gripper/reactivate_gripper_response");
+
+   ASSERT_TRUE(compat::setValue(response, 0.0));
+   ASSERT_TRUE(compat::setValue(request, 1.0));
+   ASSERT_TRUE(compat::readWriteOk(rm.read(time, period)));
+   EXPECT_TRUE(std::isnan(compat::getValue(request).value_or(0.0))) << "the driver did not consume the request";
+
+   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+   bool recovered = false;
+   while(!recovered && std::chrono::steady_clock::now() < deadline)
+   {
+      ASSERT_TRUE(compat::readWriteOk(rm.read(time, period)));
+      recovered = compat::getValue(response).value_or(0.0) == 1.0;
+      std::this_thread::sleep_for(std::chrono::milliseconds{5});
+   }
+   EXPECT_TRUE(recovered) << "the recovery result never reached the response interface";
+}
+
 namespace {
 //! The component's own ros2_control block, as on_init receives it.
 hardware_interface::HardwareInfo hardwareInfo(const std::string& urdf)
@@ -391,21 +434,29 @@ TEST(TestRobotiqGripperHardwareInterface, StateInterfacesReadNaNBeforeActivation
 namespace {
 //! White-box handle on the plugin: drives the lifecycle callbacks directly
 //! over the SDK's fake gripper, with the exchange slowed down so the recovery
-//! handshake spans many control cycles.
+//! handshake spans many control cycles. Commands go through the exported
+//! handles, as a controller's would.
 class RecoveringGripper : public RobotiqGripperHardwareInterface
 {
 public:
    RecoveringGripper()
    {
-      logger_ = std::make_shared<RclcppLogger>(rclcpp::get_logger("RecoveringGripperTest"));
-      parameters_.use_dummy = true;
-      parameters_.closed_position = 0.7929;
+      EXPECT_EQ(
+         CallbackReturn::SUCCESS,
+         on_init(compat::onInitParams(hardwareInfo(minimalRobotUrdf(R"(<param name="use_dummy">true</param>)")))));
       parameters_.connection.connectionFrequency = 20.0;
+#ifdef ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES
+      std::ignore = on_export_state_interfaces();
+      commands_ = on_export_command_interfaces();
+#else
+      // Humble EOL: delete this branch.
+      commands_ = export_command_interfaces();
+#endif
    }
 
-   void requestRecovery() { reactivate_gripper_cmd_ = 1.0; }
-   void commandPosition(double position) { gripper_position_command_ = position; }
-   void commandSpeed(double speed) { gripper_speed_ = speed; }
+   void requestRecovery() { setCommand(kReactivateGripperGpio, kReactivateCmdInterface, 1.0); }
+   void commandPosition(double position) { setCommand(joint(), hardware_interface::HW_IF_POSITION, position); }
+   void commandSpeed(double speed) { setCommand(joint(), kMaxVelocityInterface, speed); }
    uint8_t commandedPositionRegister() const { return gripper_->getCommand().positionRequest; }
    uint8_t commandedSpeedRegister() const { return gripper_->getCommand().speed; }
    bool recoveryInFlight() const { return recovery_.valid(); }
@@ -414,6 +465,40 @@ public:
       return recovery_.valid() && recovery_.wait_for(std::chrono::seconds{0}) == std::future_status::ready;
    }
    bool gripperActivated() const { return gripper_->getStatus().gripperStatus.activated(); }
+
+private:
+   const std::string& joint() const { return info_.joints[0].name; }
+
+   void setCommand(const std::string& prefix, const char* name, double value)
+   {
+      const std::string full_name = prefix + "/" + name;
+      for(auto& command : commands_)
+      {
+         if(handle(command).get_name() == full_name)
+         {
+            ASSERT_TRUE(compat::setValue(handle(command), value));
+            return;
+         }
+      }
+      FAIL() << full_name << " is not exported";
+   }
+
+#ifdef ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES
+   static hardware_interface::CommandInterface& handle(const hardware_interface::CommandInterface::SharedPtr& command)
+   {
+      return *command;
+   }
+
+   std::vector<hardware_interface::CommandInterface::SharedPtr> commands_;
+#else
+   // Humble EOL: delete this branch.
+   static hardware_interface::CommandInterface& handle(hardware_interface::CommandInterface& command)
+   {
+      return command;
+   }
+
+   std::vector<hardware_interface::CommandInterface> commands_;
+#endif
 };
 } // namespace
 
