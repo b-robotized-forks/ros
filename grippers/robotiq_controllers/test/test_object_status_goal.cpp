@@ -293,11 +293,11 @@ class FindInterface : public ::testing::Test
 protected:
    void add(const std::string& joint, const std::string& name)
    {
-      owned_.push_back(test_compat::makeStateInterface(joint, name, &value_));
-      loaned_.push_back(test_compat::loan(owned_.back()));
+      owned_.push_back(test_compat::bindState(joint, name, &value_));
+      loaned_.push_back(test_compat::loan(owned_.back().interface));
    }
 
-   std::vector<std::shared_ptr<hardware_interface::StateInterface>> owned_;
+   std::vector<test_compat::BoundInterface<hardware_interface::StateInterface>> owned_;
    std::vector<hardware_interface::LoanedStateInterface> loaned_;
    double value_ = 0.0;
    rclcpp::Logger logger_ = rclcpp::get_logger("test_object_status_goal");

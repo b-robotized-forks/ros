@@ -84,10 +84,81 @@ TEST(GripperStatusBroadcasterLoanTest, loans_through_either_interface_shape)
 {
    double value = 0.0;
    const std::shared_ptr<hardware_interface::StateInterface> state_interface =
-      test_compat::makeStateInterface(kJoint, "object_status", &value);
+      test_compat::bindState(kJoint, "object_status", &value).interface;
 
    EXPECT_EQ("object_status", test_compat::loanAs<OldApiLoaned>(state_interface).name());
    EXPECT_EQ("object_status", test_compat::loanAs<NewApiLoaned>(state_interface).name());
+}
+
+// Stand-ins for both handle shapes test_compat::bind() drives: one reading the
+// test's double through its address, as up to Lyrical, and one owning a copy,
+// as on Rolling. read() and write() are the controller's side of each.
+class AddressedHandle
+{
+public:
+   AddressedHandle(const std::string& /*joint*/, const std::string& /*interface*/, double* value)
+      : value_(value)
+   {
+   }
+
+   double read() const { return *value_; }
+   void write(double value) { *value_ = value; }
+
+private:
+   double* value_;
+};
+
+class OwningHandle
+{
+public:
+   OwningHandle(const std::string& /*joint*/, const std::string& /*interface*/) {}
+
+   bool set_value(double value, bool /*wait_for_lock*/)
+   {
+      value_ = value;
+      return true;
+   }
+
+   bool get_value(double& value, bool /*wait_for_lock*/) const
+   {
+      value = value_;
+      return true;
+   }
+
+   double read() const { return value_; }
+   void write(double value) { value_ = value; }
+
+private:
+   double value_ = kNaN;
+};
+
+template <typename HandleT>
+class BoundInterfaceTest : public ::testing::Test
+{
+};
+
+using HandleShapes = ::testing::Types<AddressedHandle, OwningHandle>;
+TYPED_TEST_SUITE(BoundInterfaceTest, HandleShapes);
+
+TYPED_TEST(BoundInterfaceTest, ReadsTheTestsValueAfterASync)
+{
+   double value = 0.25;
+   const auto bound = test_compat::bind<TypeParam>(kJoint, "object_status", &value);
+   EXPECT_DOUBLE_EQ(0.25, bound.interface->read());
+
+   value = 0.5;
+   test_compat::sync(bound);
+   EXPECT_DOUBLE_EQ(0.5, bound.interface->read());
+}
+
+TYPED_TEST(BoundInterfaceTest, ReportsTheHandlesValueAfterASyncBack)
+{
+   double value = 0.25;
+   const auto bound = test_compat::bind<TypeParam>(kJoint, "position", &value);
+
+   bound.interface->write(0.5);
+   test_compat::syncBack(bound);
+   EXPECT_DOUBLE_EQ(0.5, value);
 }
 
 class GripperStatusBroadcasterTest : public ::testing::Test
@@ -116,8 +187,8 @@ protected:
       owned_.clear();
 
       auto add = [&](const std::string& name, double* value) {
-         owned_.push_back(test_compat::makeStateInterface(kJoint, name, value));
-         loans.push_back(test_compat::loan(owned_.back()));
+         owned_.push_back(test_compat::bindState(kJoint, name, value));
+         loans.push_back(test_compat::loan(owned_.back().interface));
       };
 
       add("position", &position_);
@@ -169,6 +240,10 @@ protected:
       received_.reset();
       const rclcpp::Duration period = rclcpp::Duration::from_seconds(1.0 / kUpdateRate);
       spinUntil([&] {
+         for(const auto& state : owned_)
+         {
+            test_compat::sync(state);
+         }
          EXPECT_EQ(controller_interface::return_type::OK, broadcaster_->update(subscriber_->now(), period));
          return received_ && accept(received_.value());
       });
@@ -176,7 +251,7 @@ protected:
    }
 
    std::unique_ptr<GripperStatusBroadcaster> broadcaster_;
-   std::vector<std::shared_ptr<hardware_interface::StateInterface>> owned_;
+   std::vector<test_compat::BoundInterface<hardware_interface::StateInterface>> owned_;
 
    rclcpp::Node::SharedPtr subscriber_;
    rclcpp::Subscription<Status>::SharedPtr subscription_;
