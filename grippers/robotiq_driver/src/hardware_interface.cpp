@@ -37,7 +37,10 @@
 #include <memory>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <robotiq_driver/gripper_scaling.hpp>
@@ -321,6 +324,20 @@ std::vector<hardware_interface::StateInterface::ConstSharedPtr> RobotiqGripperHa
 
    std::vector<hardware_interface::StateInterface::ConstSharedPtr> state_interfaces =
       SystemInterface::on_export_state_interfaces();
+
+   const std::string& joint = info_.joints[0].name;
+   exported_states_.clear();
+   for(const auto& [name, value] :
+       {std::pair<const char*, const double*>{hardware_interface::HW_IF_POSITION, &gripper_position_},
+        {hardware_interface::HW_IF_VELOCITY, &gripper_velocity_},
+        {kMotorCurrentInterface, &gripper_motor_current_},
+        {kObjectStatusInterface, &gripper_object_status_},
+        {kGripperFaultInterface, &gripper_fault_.code},
+        {kGripperFaultSeverityInterface, &gripper_fault_.severity}})
+   {
+      exported_states_.emplace_back(get_state_interface_handle(fullName(joint, name)), value);
+   }
+
    // The members over the description's initial_value: every state reads NaN
    // until the gripper has answered.
    pushStates();
@@ -342,11 +359,19 @@ std::vector<hardware_interface::CommandInterface::SharedPtr> RobotiqGripperHardw
    gripper_force_ = kMaxForceDefault * parameters_.force_multiplier;
 
    const std::string& joint = info_.joints[0].name;
-   pushCommand(joint, hardware_interface::HW_IF_POSITION, gripper_position_command_);
-   pushCommand(joint, kMaxVelocityInterface, gripper_speed_);
-   pushCommand(joint, kMaxEffortInterface, gripper_force_);
-   pushCommand(kReactivateGripperGpio, kReactivateCmdInterface, reactivate_gripper_cmd_);
-   pushCommand(kReactivateGripperGpio, kReactivateResponseInterface, reactivate_gripper_response_);
+   exported_commands_.clear();
+   for(const auto& [prefix, name, value] :
+       {std::tuple<std::string, const char*, double*>{joint,
+                                                      hardware_interface::HW_IF_POSITION,
+                                                      &gripper_position_command_},
+        {joint, kMaxVelocityInterface, &gripper_speed_},
+        {joint, kMaxEffortInterface, &gripper_force_},
+        {kReactivateGripperGpio, kReactivateCmdInterface, &reactivate_gripper_cmd_},
+        {kReactivateGripperGpio, kReactivateResponseInterface, &reactivate_gripper_response_}})
+   {
+      exported_commands_.emplace_back(get_command_interface_handle(fullName(prefix, name)), value);
+      pushCommand(*value);
+   }
    return command_interfaces;
 }
 
@@ -354,32 +379,40 @@ std::vector<hardware_interface::CommandInterface::SharedPtr> RobotiqGripperHardw
 // would drop a one-shot command such as a reactivation request.
 void RobotiqGripperHardwareInterface::pullCommands()
 {
-   const std::string& joint = info_.joints[0].name;
-   gripper_position_command_ = get_command<double>(fullName(joint, hardware_interface::HW_IF_POSITION));
-   gripper_speed_ = get_command<double>(fullName(joint, kMaxVelocityInterface));
-   gripper_force_ = get_command<double>(fullName(joint, kMaxEffortInterface));
-   pullReactivationRequest();
+   pullCommand(gripper_position_command_);
+   pullCommand(gripper_speed_);
+   pullCommand(gripper_force_);
 }
 
-void RobotiqGripperHardwareInterface::pullReactivationRequest()
+void RobotiqGripperHardwareInterface::pullCommand(double& command)
 {
-   reactivate_gripper_cmd_ = get_command<double>(fullName(kReactivateGripperGpio, kReactivateCmdInterface));
+   std::ignore = get_command(exportedHandle(command), command, true);
 }
 
 void RobotiqGripperHardwareInterface::pushStates()
 {
-   const std::string& joint = info_.joints[0].name;
-   set_state(fullName(joint, hardware_interface::HW_IF_POSITION), gripper_position_);
-   set_state(fullName(joint, hardware_interface::HW_IF_VELOCITY), gripper_velocity_);
-   set_state(fullName(joint, kMotorCurrentInterface), gripper_motor_current_);
-   set_state(fullName(joint, kObjectStatusInterface), gripper_object_status_);
-   set_state(fullName(joint, kGripperFaultInterface), gripper_fault_.code);
-   set_state(fullName(joint, kGripperFaultSeverityInterface), gripper_fault_.severity);
+   for(const auto& [handle, value] : exported_states_)
+   {
+      std::ignore = set_state(handle, *value, true);
+   }
 }
 
-void RobotiqGripperHardwareInterface::pushCommand(const std::string& prefix, const char* name, double value)
+void RobotiqGripperHardwareInterface::pushCommand(const double& command)
 {
-   set_command(fullName(prefix, name), value);
+   std::ignore = set_command(exportedHandle(command), command, true);
+}
+
+const hardware_interface::CommandInterface::SharedPtr& RobotiqGripperHardwareInterface::exportedHandle(
+   const double& command) const
+{
+   const auto exported = std::find_if(exported_commands_.begin(), exported_commands_.end(), [&](const auto& pair) {
+      return pair.second == &command;
+   });
+   if(exported == exported_commands_.end())
+   {
+      throw std::logic_error("The command is not bound to an exported interface.");
+   }
+   return exported->first;
 }
 #else
 // Humble EOL: delete this branch.
@@ -439,13 +472,11 @@ std::vector<hardware_interface::CommandInterface> RobotiqGripperHardwareInterfac
 // The methods below are blank because the Humble interfaces read and write the members directly.
 void RobotiqGripperHardwareInterface::pullCommands() {}
 
-void RobotiqGripperHardwareInterface::pullReactivationRequest() {}
+void RobotiqGripperHardwareInterface::pullCommand(double& /*command*/) {}
 
 void RobotiqGripperHardwareInterface::pushStates() {}
 
-void RobotiqGripperHardwareInterface::pushCommand(const std::string& /*prefix*/, const char* /*name*/, double /*value*/)
-{
-}
+void RobotiqGripperHardwareInterface::pushCommand(const double& /*command*/) {}
 #endif
 
 hardware_interface::CallbackReturn RobotiqGripperHardwareInterface::on_activate(
@@ -523,7 +554,7 @@ hardware_interface::CallbackReturn RobotiqGripperHardwareInterface::on_activate(
                      gripperFaultSeverityFromRegister(status.faultStatus)};
    gripper_position_command_ = gripper_position_;
    pushStates();
-   pushCommand(info_.joints[0].name, hardware_interface::HW_IF_POSITION, gripper_position_command_);
+   pushCommand(gripper_position_command_);
 
    RCLCPP_INFO(kLogger, "Robotiq Gripper successfully activated!");
    return CallbackReturn::SUCCESS;
@@ -574,8 +605,8 @@ hardware_interface::return_type RobotiqGripperHardwareInterface::read(const rclc
       return hardware_interface::return_type::ERROR;
    }
 
-   // The only command read() acts on. write() pulls the rest.
-   pullReactivationRequest();
+   // The only command read() acts on; write() pulls the others.
+   pullCommand(reactivate_gripper_cmd_);
 
    const Robotiq::GripperStatus status = gripper_->getStatus();
    const Robotiq::ConnectionState connection = gripper_->connectionState();
@@ -618,7 +649,7 @@ hardware_interface::return_type RobotiqGripperHardwareInterface::read(const rclc
    if(!std::isnan(reactivate_gripper_cmd_))
    {
       reactivate_gripper_cmd_ = NO_NEW_CMD_;
-      pushCommand(kReactivateGripperGpio, kReactivateCmdInterface, reactivate_gripper_cmd_);
+      pushCommand(reactivate_gripper_cmd_);
       if(recovery_.valid())
       {
          RCLCPP_WARN(kLogger, "A gripper recovery is already running; ignoring the reactivation request.");
@@ -641,7 +672,7 @@ hardware_interface::return_type RobotiqGripperHardwareInterface::read(const rclc
       if(result == Robotiq::ActivationResult::Activated)
       {
          reactivate_gripper_response_ = 1.0;
-         pushCommand(kReactivateGripperGpio, kReactivateResponseInterface, reactivate_gripper_response_);
+         pushCommand(reactivate_gripper_response_);
          RCLCPP_INFO(kLogger, "The Robotiq gripper recovered and is activated.");
       }
       else

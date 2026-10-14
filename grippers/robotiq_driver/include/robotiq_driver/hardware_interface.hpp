@@ -41,6 +41,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <robotiq_driver/hardware_parameters.hpp>
@@ -255,17 +256,27 @@ protected:
 
 private:
    // From Jazzy on the framework owns the interface values, and these copy them
-   // to and from the members above by name. Humble binds the members by
-   // address, so there they do nothing.
+   // to and from the members above. Humble binds the members by address, so
+   // there they do nothing.
+   // Humble EOL: drop this comment's last sentence.
    void pullCommands();
-   void pullReactivationRequest();
+   void pullCommand(double& command);
    void pushStates();
 
    // One command value of the driver's own: a seed at export, or the
    // reactivation handshake. Commands never go back wholesale: a controller
    // may write one between the pull and the push, and the stale copy would
    // overwrite it.
-   void pushCommand(const std::string& prefix, const char* name, double value);
+   void pushCommand(const double& command);
+
+#ifdef ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES
+   // Each exported handle with the member it mirrors, looked up once at export
+   // so that the control loop neither builds interface names nor searches them.
+   std::vector<std::pair<hardware_interface::StateInterface::SharedPtr, const double*>> exported_states_;
+   std::vector<std::pair<hardware_interface::CommandInterface::SharedPtr, double*>> exported_commands_;
+
+   const hardware_interface::CommandInterface::SharedPtr& exportedHandle(const double& command) const;
+#endif
 };
 
 } // namespace robotiq_driver
