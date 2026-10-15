@@ -16,13 +16,7 @@ TactileSource = Literal["ros", "mock"]
 
 GraspVerdict = Literal["held", "no_contact", "closed_on_nothing"]
 
-Outcome = Literal[
-    "reached",
-    "stopped_on_object",
-    "incomplete",
-    "not_supported",
-    "refused",
-]
+Outcome = Literal["reached", "stopped_on_object", "incomplete", "refused"]
 
 
 class GripperInfo(BaseModel):

@@ -40,7 +40,7 @@ from gripper_mcp.units import (
 
 MOCK_JOINT = JointGeometry(name="mock_knuckle_joint", rad_open=0.0, rad_closed=0.8)
 MOCK_STROKE = Stroke(max_opening_mm=85.0, closed_tolerance_mm=1.5)
-MOCK_GEOMETRY = GripperGeometry.of(MOCK_STROKE, MOCK_JOINT)
+MOCK_GEOMETRY = GripperGeometry(MOCK_STROKE, MOCK_JOINT)
 
 NOMINAL_TRAVEL_SPEED_MM_S = 150.0
 DEFAULT_EFFORT = 0.2
@@ -71,7 +71,7 @@ class MockGripperBackend:
         self._sleep = sleep_fn
         self._reports_short_mm = reports_short_mm
         self._joint = MOCK_JOINT
-        self._geometry = GripperGeometry.of(stroke, self._joint)
+        self._geometry = GripperGeometry(stroke, self._joint)
 
         self._position_rad = self._joint.rad_open
         self._holding_effort = 0.0

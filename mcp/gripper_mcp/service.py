@@ -218,7 +218,7 @@ class GripperService:
 
 
 def geometry_of(spec: GripperModelSpec, backend: GripperBackend) -> GripperGeometry:
-    return GripperGeometry.of(spec.stroke, backend.joint_geometry())
+    return GripperGeometry(spec.stroke, backend.joint_geometry())
 
 
 def timestamp() -> datetime:

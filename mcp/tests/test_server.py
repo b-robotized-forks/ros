@@ -1,6 +1,7 @@
 import asyncio
 import math
 import sys
+from importlib.metadata import version
 
 import pytest
 import yaml
@@ -217,3 +218,7 @@ def test_a_nan_opening_is_refused_at_the_wire(mcp):
 
     state = call(mcp, "gripper_get_state", gripper_name="left")
     assert state.opening_mm == pytest.approx(85.0)
+
+
+def test_the_server_reports_its_own_version_not_the_librarys(mcp):
+    assert mcp.version == version("robotiq-gripper-mcp")

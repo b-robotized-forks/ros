@@ -5,12 +5,11 @@ model: robotiq_2f_140
 stroke:
   max_opening_mm: 140.0
   min_opening_mm: 0.0
-  # Margin for every position comparison the service makes: a move that
-  # ends within this of its target reached it, a close that ends further
-  # than this from the stop found something. One position-register count
-  # is stroke/227 = 0.62 mm on this model and the driver truncates, so a
-  # correct move can land a count or two off; 1.5 mm sits above two counts
-  # with room for mechanical settle, which nobody has measured on a 2F-140.
+  # How close to an end of the stroke the fingers count as met or open, for
+  # the tactile tools only (see robotiq_2f_85.yaml). One position-register
+  # count is stroke/227 = 0.62 mm on this model and the driver truncates;
+  # 1.5 mm sits above two counts with room for mechanical settle, which
+  # nobody has measured on a 2F-140.
   closed_tolerance_mm: 1.5
 
 speed:

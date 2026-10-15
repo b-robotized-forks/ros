@@ -7,6 +7,7 @@ a port; `build_service` takes the backend factory for the same reason.
 """
 
 import argparse
+from importlib.metadata import version
 from collections.abc import Callable
 from inspect import cleandoc
 from pathlib import Path
@@ -191,7 +192,11 @@ def build_services(
 
 
 def build_mcp(grippers: GripperService, tactile: TactileService) -> FastMCP:
-    mcp = FastMCP("robotiq_gripper_mcp", instructions=INSTRUCTIONS)
+    mcp = FastMCP(
+        "robotiq_gripper_mcp",
+        instructions=INSTRUCTIONS,
+        version=version("robotiq-gripper-mcp"),
+    )
     register_gripper_tools(mcp, grippers)
     register_tactile_tools(mcp, tactile)
     return mcp

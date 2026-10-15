@@ -9,8 +9,8 @@ from fakes.gripper import (
 from gripper_mcp.backend import GripperBackend
 from gripper_mcp.units import Stroke
 
-CLOSED = MOCK_GEOMETRY.knuckle_rad_closed
-OPEN = MOCK_GEOMETRY.knuckle_rad_open
+CLOSED = MOCK_GEOMETRY.joint.rad_closed
+OPEN = MOCK_GEOMETRY.joint.rad_open
 EFFORT = 0.2
 GENEROUS_TIMEOUT_S = 30.0
 CUBE_WIDTH_MM = 40.0
@@ -98,7 +98,7 @@ def test_opening_after_a_grasp_releases_without_stalling():
 
 def test_an_object_wider_than_the_stroke_is_refused():
     with pytest.raises(ValueError, match="outside the stroke"):
-        instant_mock(object_width_mm=MOCK_GEOMETRY.max_opening_mm + 1.0)
+        instant_mock(object_width_mm=MOCK_GEOMETRY.stroke.max_opening_mm + 1.0)
 
 
 def test_a_target_past_the_stroke_is_clamped():

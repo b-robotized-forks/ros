@@ -68,25 +68,8 @@ class JointGeometry:
 
 @dataclass(frozen=True)
 class GripperGeometry:
-    max_opening_mm: float
-    min_opening_mm: float
-    knuckle_rad_open: float
-    knuckle_rad_closed: float
-
-    def __post_init__(self) -> None:
-        if self.max_opening_mm <= self.min_opening_mm:
-            raise ValueError("max_opening_mm must exceed min_opening_mm")
-        if self.knuckle_rad_closed == self.knuckle_rad_open:
-            raise ValueError("knuckle_rad_closed must differ from knuckle_rad_open")
-
-    @classmethod
-    def of(cls, stroke: Stroke, joint: JointGeometry) -> "GripperGeometry":
-        return cls(
-            max_opening_mm=stroke.max_opening_mm,
-            min_opening_mm=stroke.min_opening_mm,
-            knuckle_rad_open=joint.rad_open,
-            knuckle_rad_closed=joint.rad_closed,
-        )
+    stroke: Stroke
+    joint: JointGeometry
 
 
 def clamp(value: float, low: float, high: float) -> float:
@@ -94,22 +77,24 @@ def clamp(value: float, low: float, high: float) -> float:
 
 
 def clamp_opening_mm(opening_mm: float, geometry: GripperGeometry) -> float:
-    return clamp(opening_mm, geometry.min_opening_mm, geometry.max_opening_mm)
+    stroke = geometry.stroke
+    return clamp(opening_mm, stroke.min_opening_mm, stroke.max_opening_mm)
 
 
 def opening_mm_to_fraction(opening_mm: float, geometry: GripperGeometry) -> float:
-    span = geometry.max_opening_mm - geometry.min_opening_mm
-    return (clamp_opening_mm(opening_mm, geometry) - geometry.min_opening_mm) / span
+    stroke = geometry.stroke
+    span = stroke.max_opening_mm - stroke.min_opening_mm
+    return (clamp_opening_mm(opening_mm, geometry) - stroke.min_opening_mm) / span
 
 
 def opening_mm_to_knuckle_rad(opening_mm: float, geometry: GripperGeometry) -> float:
     fraction = opening_mm_to_fraction(opening_mm, geometry)
-    span = geometry.knuckle_rad_closed - geometry.knuckle_rad_open
-    return geometry.knuckle_rad_closed - fraction * span
+    joint = geometry.joint
+    return joint.rad_closed - fraction * (joint.rad_closed - joint.rad_open)
 
 
 def knuckle_rad_to_opening_mm(knuckle_rad: float, geometry: GripperGeometry) -> float:
-    span = geometry.knuckle_rad_closed - geometry.knuckle_rad_open
-    fraction = (geometry.knuckle_rad_closed - knuckle_rad) / span
-    opening_span = geometry.max_opening_mm - geometry.min_opening_mm
-    return geometry.min_opening_mm + clamp(fraction, 0.0, 1.0) * opening_span
+    joint, stroke = geometry.joint, geometry.stroke
+    fraction = (joint.rad_closed - knuckle_rad) / (joint.rad_closed - joint.rad_open)
+    opening_span = stroke.max_opening_mm - stroke.min_opening_mm
+    return stroke.min_opening_mm + clamp(fraction, 0.0, 1.0) * opening_span
