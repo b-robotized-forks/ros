@@ -54,6 +54,9 @@ constexpr const char* kSpeedMultiplierParam = "gripper_speed_multiplier";
 constexpr const char* kForceMultiplierParam = "gripper_force_multiplier";
 constexpr const char* kActivationTimeoutParam = "activation_timeout";
 constexpr const char* kUseDummyParam = "use_dummy";
+constexpr const char* kTransportParam = "transport";
+constexpr const char* kTcpHostParam = "tcp_host";
+constexpr const char* kTcpPortParam = "tcp_port";
 
 //! Whether \p text reads as "no". Anything else — including a bare "true" or
 //! any typo — selects the fake gripper, so the spellings people actually write
@@ -117,6 +120,16 @@ uint32_t asBaudrate(const std::string& text)
    return static_cast<uint32_t>(value);
 }
 
+uint16_t asTcpPort(const std::string& text)
+{
+   const uint64_t value = asWholeNumber(text);
+   if(value == 0 || value > 65535)
+   {
+      throw std::out_of_range("tcp_port must be between 1 and 65535");
+   }
+   return static_cast<uint16_t>(value);
+}
+
 double asDouble(const std::string& text)
 {
    return std::stod(text);
@@ -163,6 +176,28 @@ GripperParameters parseParameters(const hardware_interface::HardwareInfo& info, 
       });
    parameters.connection.connectionFrequency =
       parameterOr<double>(info, logger, kConnectionFrequencyParam, kConnectionFrequencyDefault, asDouble);
+
+   // An unknown transport is fatal: falling back to the serial port would hide
+   // a typo behind a "no serial port" error.
+   const auto transport = info.hardware_parameters.find(kTransportParam);
+   const std::string transport_name = transport == info.hardware_parameters.end() ? "serial" : transport->second;
+   if(transport_name == "tcp")
+   {
+      const auto host = info.hardware_parameters.find(kTcpHostParam);
+      if(host == info.hardware_parameters.end() || host->second.empty())
+      {
+         throw std::invalid_argument("tcp_host is required when transport is 'tcp'");
+      }
+      Robotiq::TcpConfig tcp;
+      tcp.host = host->second;
+      tcp.port = parameterOr<uint16_t>(info, logger, kTcpPortParam, kTcpPortDefault, asTcpPort);
+      tcp.timeout = parameters.connection.serial.timeout;
+      parameters.connection.tcp = tcp;
+   }
+   else if(transport_name != "serial")
+   {
+      throw std::invalid_argument("transport must be 'serial' or 'tcp', not '" + transport_name + "'");
+   }
 
    // No default: the joint mapping is meaningless without the gripper's
    // closed angle, and guessing one would silently mis-scale every command.

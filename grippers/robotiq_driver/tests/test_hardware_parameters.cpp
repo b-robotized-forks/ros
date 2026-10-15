@@ -74,6 +74,55 @@ TEST(HardwareParameters, DefaultsMatchTheSdkConnectionDefaults)
    EXPECT_EQ(std::chrono::milliseconds{15000}, parameters.activation_timeout);
 }
 
+TEST(HardwareParameters, TheSerialPortIsTheDefaultTransport)
+{
+   EXPECT_FALSE(parseParameters(info_with(), logger()).connection.tcp.has_value());
+   EXPECT_FALSE(parseParameters(info_with({{"transport", "serial"}}), logger()).connection.tcp.has_value());
+}
+
+TEST(HardwareParameters, ReadsTheTcpParameters)
+{
+   const GripperParameters parameters = parseParameters(
+      info_with({{"transport", "tcp"}, {"tcp_host", "192.168.1.100"}, {"tcp_port", "50000"}, {"timeout", "0.25"}}),
+      logger());
+
+   ASSERT_TRUE(parameters.connection.tcp.has_value());
+   EXPECT_EQ("192.168.1.100", parameters.connection.tcp->host);
+   EXPECT_EQ(50000, parameters.connection.tcp->port);
+   EXPECT_EQ(std::chrono::milliseconds{250}, parameters.connection.tcp->timeout);
+}
+
+TEST(HardwareParameters, TheTcpPortDefaultsToTheUrToolCommunicationForwarder)
+{
+   const GripperParameters parameters =
+      parseParameters(info_with({{"transport", "tcp"}, {"tcp_host", "192.168.1.100"}}), logger());
+   ASSERT_TRUE(parameters.connection.tcp.has_value());
+   EXPECT_EQ(54321, parameters.connection.tcp->port);
+}
+
+TEST(HardwareParameters, AnUnusableTcpPortKeepsTheDefault)
+{
+   for(const char* unusable : {"0", "65536", "54321/tcp"})
+   {
+      SCOPED_TRACE(unusable);
+      const GripperParameters parameters =
+         parseParameters(info_with({{"transport", "tcp"}, {"tcp_host", "192.168.1.100"}, {"tcp_port", unusable}}),
+                         logger());
+      EXPECT_EQ(54321, parameters.connection.tcp->port);
+   }
+}
+
+TEST(HardwareParameters, TcpWithoutAHostIsFatal)
+{
+   EXPECT_THROW(parseParameters(info_with({{"transport", "tcp"}}), logger()), std::invalid_argument);
+   EXPECT_THROW(parseParameters(info_with({{"transport", "tcp"}, {"tcp_host", ""}}), logger()), std::invalid_argument);
+}
+
+TEST(HardwareParameters, AnUnknownTransportIsFatal)
+{
+   EXPECT_THROW(parseParameters(info_with({{"transport", "udp"}}), logger()), std::invalid_argument);
+}
+
 TEST(HardwareParameters, ReadsTheConnectionParameters)
 {
    const GripperParameters parameters =

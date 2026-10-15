@@ -116,12 +116,26 @@ bool declaresOnlySupportedStateInterfaces(const hardware_interface::ComponentInf
 // Shared by the two messages that report whether the link came up. A failed
 // connect is almost always one of these three being wrong, and the SDK logs
 // only the port and baud rate, at debug level.
+// The port or TCP endpoint the gripper is reached through.
+std::string linkName(const Robotiq::ConnectionConfig& connection)
+{
+   if(connection.tcp)
+   {
+      return "tcp://" + connection.tcp->host + ":" + std::to_string(connection.tcp->port);
+   }
+   return connection.serial.port;
+}
+
 std::string describeLink(const Robotiq::ConnectionConfig& connection)
 {
    std::ostringstream text;
-   text << connection.serial.port << " at " << connection.serial.baudrate << " bps (slave address 0x" << std::hex
-        << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<unsigned>(connection.modbusSlaveAddress)
-        << ")";
+   text << linkName(connection);
+   if(!connection.tcp)
+   {
+      text << " at " << connection.serial.baudrate << " bps";
+   }
+   text << " (slave address 0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+        << static_cast<unsigned>(connection.modbusSlaveAddress) << ")";
    return text.str();
 }
 
@@ -628,7 +642,7 @@ hardware_interface::return_type RobotiqGripperHardwareInterface::read(const rclc
                            diagnostic_clock_,
                            kDiagnosticThrottleMs,
                            "%s",
-                           ("The Robotiq gripper on " + parameters_.connection.serial.port + ": link is "
+                           ("The Robotiq gripper on " + linkName(parameters_.connection) + ": link is "
                             + std::string{Robotiq::toString(connection)} + "; the reported position may be stale.")
                               .c_str());
    }
@@ -640,7 +654,7 @@ hardware_interface::return_type RobotiqGripperHardwareInterface::read(const rclc
                            diagnostic_clock_,
                            kDiagnosticThrottleMs,
                            "%s",
-                           ("The Robotiq gripper on " + parameters_.connection.serial.port + " reports gripper fault "
+                           ("The Robotiq gripper on " + linkName(parameters_.connection) + " reports gripper fault "
                             + std::string{Robotiq::toString(fault)} + " (code "
                             + std::to_string(static_cast<unsigned>(fault)) + ").")
                               .c_str());

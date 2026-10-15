@@ -55,6 +55,7 @@ inline constexpr uint32_t kBaudrateDefault = 115200;
 inline constexpr auto kTimeoutDefault = std::chrono::milliseconds{500};
 inline constexpr uint8_t kSlaveAddressDefault = 0x09;
 inline constexpr double kConnectionFrequencyDefault = 100.0;
+inline constexpr uint16_t kTcpPortDefault = 54321; // UR Tool Communication Forwarder
 
 //! Full scale of the shipped 2F-85, and so the default for
 //! gripper_max_speed / gripper_max_force.
@@ -63,7 +64,7 @@ inline constexpr double kMaxForceDefault = 235.0; // N
 
 struct GripperParameters
 {
-   //! Serial link + Modbus addressing, handed straight to Robotiq::Gripper.
+   //! Serial or TCP link + Modbus addressing, handed straight to Robotiq::Gripper.
    Robotiq::ConnectionConfig connection;
 
    //! Joint angle (rad) at a fully closed gripper — the scale of the
