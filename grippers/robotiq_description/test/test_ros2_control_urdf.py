@@ -209,6 +209,23 @@ def test_baudrate_reaches_the_driver(model):
 
 
 @requires_xacro
+@pytest.mark.parametrize("model", MODELS)
+def test_tcp_parameters_reach_the_driver(model):
+    # Same three-file chain as baudrate.
+    ros2_control = expand(
+        model, False, "transport:=tcp", "tcp_host:=192.168.1.100", "tcp_port:=50000"
+    )
+    assert hardware_param(ros2_control, "transport") == "tcp"
+    assert hardware_param(ros2_control, "tcp_host") == "192.168.1.100"
+    assert hardware_param(ros2_control, "tcp_port") == "50000"
+
+    defaults = expand(model, False)
+    assert hardware_param(defaults, "transport") == "serial"
+    assert hardware_param(defaults, "tcp_port") == "54321"
+    assert hardware_param(expand(model, True), "transport") is None
+
+
+@requires_xacro
 @pytest.mark.parametrize("model,joint", MODELS.items())
 def test_sim_plugin_declares_only_the_position_command(model, joint):
     # The topic_based plugin does not know the driver's set_gripper_max_* interfaces;

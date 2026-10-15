@@ -8,6 +8,9 @@
     <xacro:arg name="use_fake_hardware" default="true" />
     <xacro:arg name="com_port" default="/dev/ttyUSB0" />
     <xacro:arg name="baudrate" default="115200" />
+    <xacro:arg name="transport" default="serial" />
+    <xacro:arg name="tcp_host" default="" />
+    <xacro:arg name="tcp_port" default="54321" />
     <xacro:arg name="sim_topic_based" default="false" />
     <xacro:arg name="sim_joint_commands_topic" default="/sim/joint_commands" />
     <xacro:arg name="sim_joint_states_topic" default="/sim/joint_states" />
@@ -21,6 +24,7 @@
 
     <link name="world" />
     <xacro:robotiq_gripper name="RobotiqGripperHardwareInterface" prefix="" parent="world" use_fake_hardware="$(arg use_fake_hardware)" com_port="$(arg com_port)" baudrate="$(arg baudrate)"
+        transport="$(arg transport)" tcp_host="$(arg tcp_host)" tcp_port="$(arg tcp_port)"
         sim_topic_based="$(arg sim_topic_based)"
         sim_joint_commands_topic="$(arg sim_joint_commands_topic)" sim_joint_states_topic="$(arg sim_joint_states_topic)"
         sim_isaac="$(arg sim_isaac)" isaac_joint_commands="$(arg isaac_joint_commands)" isaac_joint_states="$(arg isaac_joint_states)">

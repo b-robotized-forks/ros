@@ -17,6 +17,9 @@
         include_ros2_control:=true
         com_port:=/dev/ttyUSB0
         baudrate:=115200
+        transport:=serial
+        tcp_host:=''
+        tcp_port:=54321
         gripper_speed_multiplier:=1.0
         gripper_force_multiplier:=0.5
         gripper_max_speed:=0.250
@@ -47,6 +50,9 @@
                 mock_sensor_commands="${mock_sensor_commands}"
                 com_port="${com_port}"
                 baudrate="${baudrate}"
+                transport="${transport}"
+                tcp_host="${tcp_host}"
+                tcp_port="${tcp_port}"
                 gripper_speed_multiplier="${gripper_speed_multiplier}"
                 gripper_force_multiplier="${gripper_force_multiplier}"
                 gripper_max_speed="${gripper_max_speed}"

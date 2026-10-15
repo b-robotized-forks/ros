@@ -241,6 +241,15 @@ def xacro_command():
             "baudrate:=",
             LaunchConfiguration("baudrate"),
             " ",
+            "transport:=",
+            LaunchConfiguration("transport"),
+            " ",
+            "tcp_host:=",
+            LaunchConfiguration("tcp_host"),
+            " ",
+            "tcp_port:=",
+            LaunchConfiguration("tcp_port"),
+            " ",
             "sim_topic_based:=",
             LaunchConfiguration("sim_topic_based"),
             " ",
@@ -311,6 +320,27 @@ def generate_launch_description():
             name="baudrate",
             default_value="115200",
             description="Modbus RTU baudrate the gripper is configured for",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="transport",
+            default_value="serial",
+            description="Link to the gripper: 'serial' (com_port) or 'tcp' (tcp_host, tcp_port)",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="tcp_host",
+            default_value="",
+            description="Numeric IP address of the raw Modbus RTU over TCP bridge, e.g. the UR robot",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="tcp_port",
+            default_value="54321",
+            description="TCP port of the bridge (UR Tool Communication Forwarder: 54321)",
         )
     )
     args.append(
