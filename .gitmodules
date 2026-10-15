@@ -3,4 +3,5 @@
 	url = https://github.com/Robotiq/tactile_sensors.git
 [submodule "extern/grippers"]
 	path = extern/grippers
-	url = https://github.com/Robotiq/grippers.git
+	url = https://github.com/b-robotized-forks/grippers.git
+	branch = feat/tcp-serial
