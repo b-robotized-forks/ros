@@ -1,0 +1,21 @@
+# Robotiq 2F-140 datasheet. See robotiq_2f_85.yaml for what each field means.
+
+model: robotiq_2f_140
+
+stroke:
+  max_opening_mm: 140.0
+  min_opening_mm: 0.0
+  # How close to an end of the stroke the fingers count as met or open, for
+  # the tactile tools only (see robotiq_2f_85.yaml). One position-register
+  # count is stroke/227 = 0.62 mm on this model and the driver truncates;
+  # 1.5 mm sits above two counts with room for mechanical settle, which
+  # nobody has measured on a 2F-140.
+  closed_tolerance_mm: 1.5
+
+speed:
+  min_mm_s: 30.0
+  max_mm_s: 250.0
+
+defaults:
+  effort: 0.4
+  motion_timeout_s: 10.0

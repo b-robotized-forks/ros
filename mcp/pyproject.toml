@@ -1,0 +1,30 @@
+[project]
+name = "robotiq-gripper-mcp"
+version = "1.2.0"
+description = "MCP server exposing Robotiq 2F grippers to LLM agents through the ROS 2 driver"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp==4.0.2",
+    "pydantic==2.13.5",
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+gripper-mcp = "gripper_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gripper_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

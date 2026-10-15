@@ -1,0 +1,43 @@
+# Robotiq 2F-85 datasheet. One file per gripper model, the same on every host;
+# cell wiring (which grippers exist, their ROS namespace) lives in grippers.yaml.
+# Supporting another Robotiq model is adding one file here, no code.
+#
+# Only what the robot description cannot tell us belongs here. The command
+# joint's name and range are read from the robot at startup, never copied.
+
+model: robotiq_2f_85
+
+# Product datasheet. The opening is mapped onto the command joint's range
+# linearly; the real linkage is a four-bar, so mid-stroke openings are approximate.
+stroke:
+  max_opening_mm: 85.0
+  min_opening_mm: 0.0
+  # How close to an end of the stroke the fingers count as met (closed) or
+  # open. It feeds only the tactile tools: gripper_verify_grasp's verdict and
+  # the open-fingers check before an automatic tare. Move outcomes come from
+  # the controller and do not use it. One position-register count is
+  # stroke/227 = 0.37 mm on this model and the driver truncates, so a settled
+  # gripper can sit a count or two off; 1.5 mm sits above two counts and
+  # covers a real 2F-85 wearing TSF fingers, which settles 0.75 mm short of
+  # the description's closed angle.
+  closed_tolerance_mm: 1.5
+
+# Finger speed range from the product datasheet. A requested speed outside it
+# is clamped; a move that names none runs at the controller's default, full
+# speed. The driver scales the request against its own gripper_max_speed.
+speed:
+  min_mm_s: 20.0
+  max_mm_s: 150.0
+
+defaults:
+  # Effort when a call does not name one, 0.0 = the gripper's minimum force,
+  # 1.0 = its maximum. The product datasheet's 20-235 N is not used: the force
+  # register has no newton equivalent (grip force depends on the speed, the
+  # fingers and the object), so the MCP commands effort the way the SDK does.
+  effort: 0.2
+  motion_timeout_s: 10.0
+
+# Tactile pads that fit this gripper: datasheets/tactile/<tactile_model>.yaml.
+# Omit for a model with no tactile option. Whether a given gripper wears them
+# is the wiring's business (`tactile: ros` in grippers.yaml).
+tactile_model: robotiq_tsf_85
