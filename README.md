@@ -413,7 +413,10 @@ None of the four beyond `position` and `velocity` are `ros2_control` standard in
 | `gripper_closed_position` | *required* | Joint angle in radians at a fully closed gripper — the scale of the whole position mapping |
 | `COM_port` | `/dev/ttyUSB0` | Serial port |
 | `baudrate` | `115200` | Must match the gripper's persisted setting, which is why it is also a launch argument, `baudrate:=<rate>`. Rejected outside 1..1000000. Most units stay at 115200; the gripper's own rate is changed in the Robotiq User Interface (*Modbus RTU Parameters*), not from here, and the gripper must be rebooted afterwards |
-| `timeout` | `0.5` | Per-transaction serial timeout, in seconds |
+| `timeout` | `0.5` | Per-transaction timeout, in seconds, for the serial port or the TCP link |
+| `transport` | `serial` | `serial` for `COM_port`, or `tcp` for a raw Modbus RTU over TCP bridge (see [Gripper on a UR robot's tool flange](#gripper-on-a-ur-robots-tool-flange)). Any other value fails the transition |
+| `tcp_host` | *required for `tcp`* | Numeric IPv4 or IPv6 address of the bridge, e.g. the UR robot. No DNS lookup |
+| `tcp_port` | `54321` | TCP port of the bridge; 54321 is the UR Tool Communication Forwarder. Rejected outside 1..65535 |
 | `slave_address` | `0x09` | Modbus slave address; `0x09` as the manual prints it, a bare number as the decimal it looks like |
 | `connection_frequency` | `100` | Rate of the SDK's background exchange cycle, in Hz; `0` free-runs |
 | `activation_timeout` | `15` | Seconds allowed for activation and for fault recovery |
@@ -421,9 +424,26 @@ None of the four beyond `position` and `velocity` are `ros2_control` standard in
 | `gripper_speed_multiplier` / `gripper_force_multiplier` | `1.0` | Initial fractions published on those interfaces |
 | `use_dummy` | `false` | Drive a fake gripper instead of hardware. Off for the usual falsey spellings — empty, `0`, `false`, `no`, `off`, in any case — on for anything else |
 
-A malformed value is reported and the default stands; only `gripper_closed_position` fails the transition — missing, malformed, zero, or non-finite. A speed or force command the driver cannot turn into a register leaves that register at its previous value.
+A malformed value is reported and the default stands; only `gripper_closed_position` (missing, malformed, zero, or non-finite), an unknown `transport` and a missing `tcp_host` fail the transition. A speed or force command the driver cannot turn into a register leaves that register at its previous value.
 
 > `use_dummy` selects the SDK's fake gripper: no port is opened, activation is instant, and the fingers report wherever they were last commanded. It keeps the real plugin loaded, so the gripper and activation controllers still bind. That is what distinguishes it from the `use_fake_hardware:=true` launch argument, which swaps the plugin out for `ros2_control`'s `mock_components/GenericSystem`.
+
+### Gripper on a UR robot's tool flange
+
+A gripper on the tool RS-485 interface of a Universal Robots arm can be driven over the network.
+Install and enable the [UR Tool Communication Forwarder](https://github.com/UniversalRobots/Universal_Robots_ToolComm_Forwarder_URCap) URCap, and set the tool voltage, baud rate, parity and stop bits for the gripper in the robot's tool I/O settings.
+Then launch with the robot's IP address:
+
+```bash
+ros2 launch robotiq_description robotiq_control.launch.py use_fake_hardware:=false \
+  transport:=tcp tcp_host:=192.168.1.100
+```
+
+The driver connects to the forwarder directly; no `socat` or `tool_communication.py` is needed on the PC.
+The frames keep their Modbus RTU form with CRC; this is not Modbus TCP.
+Use only one client of the forwarder: disable `use_tool_communication` in the UR ROS driver and the Robotiq Grippers URCap.
+
+When the connection is lost, the link reports `Faulted` as with an unplugged USB cable, and the driver connects again about once per second until the forwarder answers.
 
 ### Activation, faults and recovery
 
