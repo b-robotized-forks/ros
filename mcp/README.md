@@ -20,14 +20,17 @@ hardware and against a simulator launched with `sim_topic_based:=true`.
 | `gripper_verify_grasp` | Confirm a hold from touch plus opening |
 
 Every tool takes an explicit `gripper_name`; nothing fans out to every gripper.
-A motion's `speed_mm_s`, the speed of each finger, is clamped to the model's
-range, which `gripper_list_grippers` reports (20-150 mm/s on a 2F-85); leaving
-it out runs at full speed. The speed is applied on a real gripper under the
-controller of Jazzy and later distributions (Lyrical, Rolling). Humble's
-controller carries no speed, so there the move runs at full
-speed and its `detail` says the speed was not applied; a simulator connected
-through the driver's topic-based mode (`sim_topic_based:=true`) drops it
-silently.
+A motion's `effort`, 0 to 1, is the gripper's minimum to maximum force; leaving
+it out uses the model's default. Its `speed_mm_s`, the speed of each finger, is
+clamped to the model's range, which `gripper_list_grippers` reports (20-150
+mm/s on a 2F-85); leaving it out runs at full speed. Both are scaled to the
+`gripper_max_force` and `gripper_max_speed` the robot description gives the
+driver, so they hold on any model and on a cell that overrides them. Both are
+applied on a real gripper under the controller of Jazzy and later distributions
+(Lyrical, Rolling). Humble's controller applies neither: there the move runs
+with the driver's own force and full speed, and its `detail` says which was not
+applied. A simulator connected through the driver's topic-based mode
+(`sim_topic_based:=true`) drops the speed silently.
 Openings are in **millimetres**: `0.0` closed, the model's max opening (`85.0`
 on a 2F-85, `140.0` on a 2F-140) fully open. Every motion result carries an
 `outcome`:

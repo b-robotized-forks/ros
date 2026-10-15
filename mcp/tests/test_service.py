@@ -1,3 +1,5 @@
+import math
+
 import pytest
 from fakes.gripper import MockGripperBackend
 
@@ -8,7 +10,6 @@ from gripper_mcp.service import (
     UnknownGripperError,
     classify,
 )
-from gripper_mcp.units import MM_PER_M
 
 NARROW = "robotiq_2f_85"
 WIDE = "robotiq_2f_140"
@@ -24,6 +25,7 @@ MAX_EFFORT = 1.0
 SPEED = load_model_specs(SPEC_DIR, {NARROW})[NARROW].speed
 CRAWL_SPEED_MM_S = 1.0
 GENTLE_SPEED_MM_S = 40.0
+UNSETTLED_CLOSE_MM = 1.87
 
 
 def service_with(**backend_kwargs) -> tuple[GripperService, MockGripperBackend]:
@@ -137,6 +139,77 @@ def test_a_close_uses_the_datasheet_effort_unless_told_otherwise():
     assert backend.read_state().holding_effort == GENTLE_EFFORT
 
 
+def test_an_unnamed_effort_reaches_the_backend_unnamed():
+    service, backend = service_with()
+
+    service.close_fully(ARM)
+
+    assert backend.last_effort is None
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize(
+    "move",
+    [
+        lambda service, bad: service.close_fully(ARM, effort=bad),
+        lambda service, bad: service.close_fully(ARM, speed_mm_s=bad),
+        lambda service, bad: service.move_to_opening(ARM, bad),
+    ],
+)
+def test_a_number_that_is_not_finite_is_refused_before_moving(move, bad):
+    service, backend = service_with()
+
+    with pytest.raises(ValueError, match="must be a finite number"):
+        move(service, bad)
+
+    assert service.get_state(ARM).opening_mm == pytest.approx(FULLY_OPEN_MM)
+
+
+class LostGripper(MockGripperBackend):
+    def move_to(self, position_rad, effort, timeout_s, speed=None):
+        return BackendMotion(
+            final_position_rad=None,
+            reached_goal=False,
+            stalled=False,
+            timed_out=True,
+            detail="No result.",
+        )
+
+
+def test_a_move_that_could_not_read_the_fingers_reports_no_position():
+    service, _ = service_with()
+    service._backends[ARM] = LostGripper(sleep_fn=lambda _seconds: None)
+
+    result = service.move_to_opening(ARM, HALF_OPEN_MM)
+
+    assert result.outcome == "incomplete"
+    assert result.achieved_opening_mm is None
+
+
+def test_a_reached_full_close_counts_as_fingers_met_before_it_settles():
+    service, _ = service_with(reports_short_mm=UNSETTLED_CLOSE_MM)
+
+    result = service.close_fully(ARM)
+
+    assert result.achieved_opening_mm == pytest.approx(UNSETTLED_CLOSE_MM)
+    assert service.fingers_met(ARM, result.achieved_opening_mm) is True
+
+
+def test_an_unsettled_reading_without_a_reached_close_is_not_fingers_met():
+    service, _ = service_with()
+
+    assert service.fingers_met(ARM, UNSETTLED_CLOSE_MM) is False
+
+
+def test_a_later_move_forgets_the_reached_close():
+    service, _ = service_with(reports_short_mm=UNSETTLED_CLOSE_MM)
+    service.close_fully(ARM)
+
+    service.move_to_opening(ARM, HALF_OPEN_MM)
+
+    assert service.fingers_met(ARM, UNSETTLED_CLOSE_MM) is False
+
+
 def test_an_effort_above_one_is_clamped_and_said():
     service, backend = service_with(object_width_mm=CUBE_WIDTH_MM)
 
@@ -168,7 +241,7 @@ def test_a_move_that_names_no_speed_leaves_it_to_the_controller():
 
     result = service.close_fully(ARM)
 
-    assert backend.last_speed_m_s is None
+    assert backend.last_speed is None
     assert "speed" not in result.detail
 
 
@@ -182,12 +255,12 @@ def test_a_move_that_names_no_speed_leaves_it_to_the_controller():
         ),
     ],
 )
-def test_a_speed_in_mm_per_s_reaches_the_backend_in_m_per_s(move):
+def test_a_speed_reaches_the_backend_as_a_fraction_of_full_speed(move):
     service, backend = service_with()
 
     result = move(service)
 
-    assert backend.last_speed_m_s == pytest.approx(GENTLE_SPEED_MM_S / MM_PER_M)
+    assert backend.last_speed == pytest.approx(GENTLE_SPEED_MM_S / SPEED.max_mm_s)
     assert "clamped" not in result.detail
 
 
@@ -200,7 +273,7 @@ def test_a_speed_outside_the_datasheet_range_is_clamped_and_said(requested, appl
 
     result = service.close_fully(ARM, speed_mm_s=requested)
 
-    assert backend.last_speed_m_s == pytest.approx(applied / MM_PER_M)
+    assert backend.last_speed == pytest.approx(applied / SPEED.max_mm_s)
     assert (
         f"Requested speed {requested:g} mm/s, clamped to {applied:g} mm/s."
         in result.detail

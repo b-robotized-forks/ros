@@ -1,6 +1,11 @@
 import pytest
 
-from gripper_mcp.robot_description import command_joint
+from gripper_mcp.robot_description import (
+    DRIVER_DEFAULT_MAX_FORCE_N,
+    DRIVER_DEFAULT_MAX_SPEED_M_S,
+    command_joint,
+    driver_scale,
+)
 
 LIMIT_2F_85_RAD = 0.8
 LIMIT_2F_140_RAD = 0.7
@@ -12,6 +17,15 @@ REAL_HARDWARE = """
         <plugin>robotiq_driver/RobotiqGripperHardwareInterface</plugin>
         <param name="gripper_closed_position">0.7929</param>
         <param name="COM_port">/dev/ttyUSB0</param>
+      </hardware>"""
+CELL_2F_140_MAX_FORCE_N = 125.0
+CELL_2F_140_MAX_SPEED_M_S = 0.250
+CELL_2F_140_HARDWARE = f"""
+      <hardware>
+        <plugin>robotiq_driver/RobotiqGripperHardwareInterface</plugin>
+        <param name="gripper_closed_position">0.695</param>
+        <param name="gripper_max_speed">{CELL_2F_140_MAX_SPEED_M_S}</param>
+        <param name="gripper_max_force">{CELL_2F_140_MAX_FORCE_N}</param>
       </hardware>"""
 FAKE_HARDWARE = """
       <hardware>
@@ -128,3 +142,29 @@ def test_two_grippers_in_one_description_are_refused_with_both_named():
 def test_a_command_joint_without_limits_is_refused():
     with pytest.raises(ValueError, match="no <limit"):
         command_joint(gripper_urdf(with_limit=False))
+
+
+def test_the_driver_scale_is_read_from_the_hardware_block():
+    scale = driver_scale(gripper_urdf(control=ros2_control(CELL_2F_140_HARDWARE)))
+
+    assert scale.max_force_n == CELL_2F_140_MAX_FORCE_N
+    assert scale.max_speed_m_s == CELL_2F_140_MAX_SPEED_M_S
+
+
+def test_a_block_without_a_scale_falls_back_to_the_drivers_defaults():
+    scale = driver_scale(gripper_urdf(control=ros2_control(FAKE_HARDWARE)))
+
+    assert scale.max_force_n == DRIVER_DEFAULT_MAX_FORCE_N
+    assert scale.max_speed_m_s == DRIVER_DEFAULT_MAX_SPEED_M_S
+
+
+def test_a_description_that_is_not_xml_is_a_value_error():
+    with pytest.raises(ValueError, match="not valid XML"):
+        command_joint("<robot><joint")
+
+
+def test_a_joint_without_a_name_is_a_value_error():
+    nameless = gripper_urdf().replace('<joint name="robotiq_85_base_joint"', "<joint")
+
+    with pytest.raises(ValueError, match="without a name"):
+        command_joint(nameless)

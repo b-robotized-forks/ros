@@ -25,7 +25,7 @@ STATUS_NAMES = {
 
 
 def motion_from_result(
-    status: int, position_rad: float, stalled: bool, reached_goal: bool
+    status: int, position_rad: float | None, stalled: bool, reached_goal: bool
 ) -> BackendMotion:
     name = STATUS_NAMES.get(status, f"status {status}")
     if status == STATUS_CANCELED:
@@ -41,6 +41,14 @@ def motion_from_result(
         reached_goal=reached_goal,
         stalled=stalled,
         detail=f"Goal {name}: stalled={stalled}, reached_goal={reached_goal}.",
+    )
+
+
+def effort_ignored_message(action_type: str) -> str:
+    return (
+        f"Effort not applied: the controller takes {action_type} goals and "
+        "cannot pass an effort to the driver (ROS 2 Humble's gripper controller); "
+        "the force is the driver's gripper_force_multiplier. "
     )
 
 
@@ -66,7 +74,7 @@ def health_from(action_ready: bool, state_fresh: bool, detail: str) -> BackendHe
     )
 
 
-def refused(position_rad: float, detail: str) -> BackendMotion:
+def refused(position_rad: float | None, detail: str) -> BackendMotion:
     return BackendMotion(
         final_position_rad=position_rad,
         reached_goal=False,
@@ -95,7 +103,7 @@ def no_state_message(
 
 
 def timed_out(
-    position_rad: float, timeout_s: float, stage: str, cancel_note: str = ""
+    position_rad: float | None, timeout_s: float, stage: str, cancel_note: str = ""
 ) -> BackendMotion:
     return BackendMotion(
         final_position_rad=position_rad,
@@ -127,14 +135,14 @@ def advertised_type(names_and_types, action_name: str, known: dict) -> str | Non
     return None
 
 
-def position_of(state, joint: str, fallback: float) -> float:
+def position_of(state, joint: str, fallback: float | None) -> float | None:
     names = list(state.name)
     if joint not in names:
         return fallback
     return state.position[names.index(joint)]
 
 
-def result_position_of(state, joint: str, fallback: float) -> float:
+def result_position_of(state, joint: str, fallback: float | None) -> float | None:
     if not state.name:
         return state.position[0] if len(state.position) == 1 else fallback
     return position_of(state, joint, fallback)

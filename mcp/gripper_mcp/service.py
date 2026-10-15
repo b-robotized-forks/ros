@@ -17,8 +17,20 @@ means `reached`, `stalled` means `stopped_on_object`, and a goal it decided
 neither way is `incomplete`. On a real gripper the controller takes both flags
 from the firmware's own object detection (gOBJ, the `object_status` state
 interface); the simulators' configs decide them from position and velocity.
+
+A number that is not finite is refused before it reaches a clamp: `max` and
+`min` pass NaN through to the upper bound, so a NaN effort would grip at full
+force and a NaN opening open fully.
+
+The controller calls a move done within about 2 mm of its goal, before the
+fingers settle, so a full close on nothing can read 1.9 mm while the closed
+tolerance is 1.5. `fingers_met` therefore also trusts the last full close this
+server saw come back `reached`, as long as the opening has stayed within twice
+the tolerance; otherwise the TSF pads, pressing on each other, would make an
+empty gripper read as a hold.
 """
 
+import math
 from datetime import datetime, timezone
 
 from gripper_mcp.backend import BackendMotion, GripperBackend
@@ -31,7 +43,6 @@ from gripper_mcp.models import (
     Outcome,
 )
 from gripper_mcp.units import (
-    MM_PER_M,
     GripperGeometry,
     Stroke,
     clamp,
@@ -46,6 +57,7 @@ MAX_EFFORT = 1.0
 MM_DECIMALS = 2
 RAD_DECIMALS = 4
 FRACTION_DECIMALS = 4
+SETTLE_TOLERANCES = 2.0
 
 
 class UnknownGripperError(Exception):
@@ -64,6 +76,7 @@ class GripperService:
         self._configs = configs
         self._backends = backends
         self._tactile_sources = tactile_sources or {}
+        self._closed_on_reach: set[str] = set()
 
     def list_grippers(self) -> list[GripperInfo]:
         return [
@@ -82,6 +95,15 @@ class GripperService:
 
     def stroke_of(self, gripper_name: str) -> Stroke:
         return self._spec(gripper_name).stroke
+
+    def fingers_met(self, gripper_name: str, opening_mm: float) -> bool:
+        stroke = self.stroke_of(gripper_name)
+        if stroke.fingers_met(opening_mm):
+            return True
+        settled_bound = (
+            stroke.min_opening_mm + SETTLE_TOLERANCES * stroke.closed_tolerance_mm
+        )
+        return gripper_name in self._closed_on_reach and opening_mm <= settled_bound
 
     def get_state(self, gripper_name: str) -> GripperState:
         backend = self._backend(gripper_name)
@@ -130,27 +152,30 @@ class GripperService:
         effort: float | None = None,
         speed_mm_s: float | None = None,
     ) -> GripperMotionResult:
+        require_finite(position_mm=opening_mm, effort=effort, speed_mm_s=speed_mm_s)
         backend = self._backend(gripper_name)
         spec = self._spec(gripper_name)
         geometry = geometry_of(spec, backend)
         target_mm = clamp_opening_mm(opening_mm, geometry)
-        applied_effort = clamp_effort(effort, spec)
+        applied_effort = clamp_effort(effort)
         applied_speed = clamp_speed(speed_mm_s, spec.speed)
         motion = backend.move_to(
             position_rad=opening_mm_to_knuckle_rad(target_mm, geometry),
             effort=applied_effort,
             timeout_s=spec.defaults.motion_timeout_s,
-            speed_m_s=None if applied_speed is None else applied_speed / MM_PER_M,
+            speed=(
+                None if applied_speed is None else applied_speed / spec.speed.max_mm_s
+            ),
         )
-        achieved_mm = knuckle_rad_to_opening_mm(motion.final_position_rad, geometry)
         outcome = classify(motion)
+        self._closed_on_reach.discard(gripper_name)
+        if target_mm == spec.stroke.min_opening_mm and outcome == "reached":
+            self._closed_on_reach.add(gripper_name)
 
         return GripperMotionResult(
             gripper_name=gripper_name,
             commanded_opening_mm=round(target_mm, MM_DECIMALS),
-            achieved_opening_mm=(
-                None if motion.refused else round(achieved_mm, MM_DECIMALS)
-            ),
+            achieved_opening_mm=achieved_opening_mm(motion, geometry),
             reached_goal=motion.reached_goal,
             stalled=motion.stalled,
             object_detected=outcome == "stopped_on_object",
@@ -200,19 +225,34 @@ def timestamp() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def require_finite(**values: float | None) -> None:
+    for name, value in values.items():
+        if value is not None and not math.isfinite(value):
+            raise ValueError(f"{name} must be a finite number, got {value}.")
+
+
+def achieved_opening_mm(
+    motion: BackendMotion, geometry: GripperGeometry
+) -> float | None:
+    if motion.refused or motion.final_position_rad is None:
+        return None
+    opening = knuckle_rad_to_opening_mm(motion.final_position_rad, geometry)
+    return round(opening, MM_DECIMALS)
+
+
 def clamp_note(requested_mm: float, target_mm: float) -> str:
     if requested_mm == target_mm:
         return ""
     return f"Requested {requested_mm:.1f} mm, clamped to {target_mm:.1f} mm. "
 
 
-def clamp_effort(requested: float | None, spec: GripperModelSpec) -> float:
+def clamp_effort(requested: float | None) -> float | None:
     if requested is None:
-        return spec.defaults.effort
+        return None
     return clamp(requested, MIN_EFFORT, MAX_EFFORT)
 
 
-def effort_note(requested: float | None, applied: float) -> str:
+def effort_note(requested: float | None, applied: float | None) -> str:
     if requested is None or requested == applied:
         return ""
     return f"Requested effort {requested:g}, clamped to {applied:g}. "

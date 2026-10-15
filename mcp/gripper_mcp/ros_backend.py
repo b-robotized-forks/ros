@@ -22,8 +22,13 @@ control_msgs releases ship both types on every distro.
 
 Calls on one gripper are serialised: FastMCP runs tools on worker threads and an
 agent may issue two moves at once, and two goals in flight on one controller
-resolve in whatever order it likes. One deadline covers the whole call, from goal
-response to result, so the tool-level ceiling is the datasheet's timeout. A goal
+resolve in whatever order it likes. The action calls themselves run on the
+node's executor thread, never on the tool's: older Humble rclpy registers a goal
+request's future after sending it, so a response the executor handled in between
+was dropped and the move reported no goal response although the gripper moved.
+One deadline covers the call from goal response to result, started once the
+action server is known ready, so the tool-level ceiling is the datasheet's
+timeout and the first move after start does not spend it on discovery. A goal
 that outlives it is cancelled and the cancel's answer is reported, because a
 rejected cancel means the gripper is still moving after the tool said it failed.
 
@@ -31,17 +36,23 @@ The effort is 0.0 to 1.0, the gripper's minimum to maximum force, the way the
 gripper SDK commands it: the force register has no newton equivalent, since the
 force applied depends on the speed, the fingers and the object. The controller's
 goal still carries `max_effort` in nominal newtons and the driver divides it by
-its `gripper_max_force` parameter, 235 by default, to fill the register, so the
-effort is sent as effort x 235. Temporary: robotiq/ros#70 has the driver take
-the SDK's effort directly, and this scaling goes with it.
+its `gripper_max_force` to fill the register, so the effort is sent as that
+fraction of the `gripper_max_force` the robot description gives the driver. The
+speed likewise: a fraction of the gripper's full speed, sent on the goal as
+`command.velocity`, that fraction of `gripper_max_speed`. Temporary:
+robotiq/ros#70 has the driver take the SDK's effort directly, and this scaling
+goes with it. A move that names no effort sends the model's default; one that
+names no speed runs at the controller's own.
 
-A speed, when the call names one, goes on the goal as `command.velocity` in
-m/s; the controller forwards it to the driver's `set_gripper_max_velocity`
-interface and the driver maps it onto the gripper's speed register. Humble's
-`GripperCommand` has no speed field, so there the move runs at the controller's
-own speed and its detail says the speed was not applied. A controller without a
-speed interface (the topic-based sim configs) drops it without saying so, which
-the server cannot see. A move that names no speed runs at the controller's own.
+Humble's controller applies neither: `GripperCommand` has no speed field, and
+the controller cannot claim the driver's effort interface, so the force comes
+from the driver's `gripper_force_multiplier`. There a move that names either
+still runs, and its detail says what was not applied. A controller without a
+speed interface (the topic-based sim configs) drops the speed without saying
+so, which the server cannot see.
+
+A position is reported only from fresh `joint_states` or the controller's
+result; a move that failed with neither reports none, never the commanded one.
 
 `holding_effort` is never filled. `joint_states.effort` would be a joint torque
 in N m, and no shipped description exports an effort interface anyway; the
@@ -64,12 +75,13 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from gripper_mcp.backend import BackendHealth, BackendMotion, BackendState
-from gripper_mcp.robot_description import command_joint
+from gripper_mcp.robot_description import DriverScale, command_joint, driver_scale
 from gripper_mcp.units import JointGeometry
 from gripper_mcp.ros_messages import (
     JOINT_STATES_TOPIC,
     advertised_type,
     cancel_note,
+    effort_ignored_message,
     health_from,
     motion_from_result,
     no_state_message,
@@ -88,7 +100,6 @@ ACTION_TYPES = {
 }
 DESCRIPTION_TOPIC = "robot_description"
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-DRIVER_FULL_SCALE_EFFORT_N = 235.0
 SERVER_WAIT_S = 2.0
 DESCRIPTION_WAIT_S = 2.0
 STATE_WAIT_S = 2.0
@@ -110,7 +121,7 @@ class RosGraph:
         return Node(name, namespace=namespace or "/")
 
     @classmethod
-    def spin(cls, node: Node) -> None:
+    def spin(cls, node: Node) -> SingleThreadedExecutor:
         executor = SingleThreadedExecutor()
         executor.add_node(node)
         with cls._lock:
@@ -118,6 +129,7 @@ class RosGraph:
         threading.Thread(
             target=executor.spin, name=f"rclpy-spin-{node.get_name()}", daemon=True
         ).start()
+        return executor
 
     @classmethod
     def shutdown(cls) -> None:
@@ -160,6 +172,14 @@ def cancel_when_accepted(goal_future) -> None:
     goal_future.add_done_callback(cancel)
 
 
+def call_on(executor: SingleThreadedExecutor, call: Callable[[], object], timeout_s):
+    return wait_for(executor.create_task(call), timeout_s)
+
+
+def then(future, timeout_s: float):
+    return None if future is None else wait_for(future, timeout_s)
+
+
 class JointStateFeed:
     def __init__(self, node: Node) -> None:
         self.latest: JointState | None = None
@@ -183,14 +203,16 @@ class JointStateFeed:
 
     def _on_joint_states(self, message: JointState) -> None:
         if self._joint_name is not None and self._joint_name in message.name:
-            self.latest_at = time.monotonic()
             self.latest = message
+            self.latest_at = time.monotonic()
 
 
 class RosGripperBackend:
     name = "ros"
 
-    def __init__(self, gripper_name: str, namespace: str) -> None:
+    def __init__(
+        self, gripper_name: str, namespace: str, default_effort: float
+    ) -> None:
         self._node = RosGraph.node(f"gripper_mcp_{gripper_name}", namespace)
         self._description: str | None = None
         self._node.create_subscription(
@@ -198,11 +220,13 @@ class RosGripperBackend:
         )
         self._states = JointStateFeed(self._node)
         self._joint: JointGeometry | None = None
+        self._scale: DriverScale | None = None
+        self._default_effort = default_effort
         self._client: ActionClient | None = None
         self._action_type = None
         self._client_lock = threading.Lock()
         self._motion_lock = threading.Lock()
-        RosGraph.spin(self._node)
+        self._executor = RosGraph.spin(self._node)
 
     def joint_geometry(self) -> JointGeometry:
         if self._joint is None:
@@ -213,6 +237,7 @@ class RosGripperBackend:
                     "running there?"
                 )
             self._joint = command_joint(self._description)
+            self._scale = driver_scale(self._description)
             self._states.follow(self._joint.name)
         return self._joint
 
@@ -235,74 +260,87 @@ class RosGripperBackend:
     def move_to(
         self,
         position_rad: float,
-        effort: float,
+        effort: float | None,
         timeout_s: float,
-        speed_m_s: float | None = None,
+        speed: float | None = None,
     ) -> BackendMotion:
         with self._motion_lock:
-            return self._move_to(position_rad, effort, timeout_s, speed_m_s)
+            return self._move_to(position_rad, effort, timeout_s, speed)
 
     def _move_to(
         self,
         position_rad: float,
-        effort: float,
+        effort: float | None,
         timeout_s: float,
-        speed_m_s: float | None,
+        speed: float | None,
     ) -> BackendMotion:
-        deadline = time.monotonic() + timeout_s
         self.joint_geometry()
-        here = self._position_or(position_rad)
         client = self._ready_client()
         if client is None:
             return refused(
-                here,
+                self._fresh_position(),
                 f"No {ACTION_NAME} action server under "
                 f"'{self._node.get_namespace()}'; is the controller active?",
             )
+        deadline = time.monotonic() + timeout_s
 
-        note = ""
-        if speed_m_s is not None and self._action_type is not ParallelGripperCommand:
-            note = speed_ignored_message(self._action_type.__name__)
-            speed_m_s = None
-
-        goal = self._goal(position_rad, effort, speed_m_s)
-        motion = self._send(client, goal, here, deadline, timeout_s)
+        note = self._not_applied(effort, speed)
+        if self._action_type is not ParallelGripperCommand:
+            speed = None
+        sent_effort = self._default_effort if effort is None else effort
+        goal = self._goal(position_rad, sent_effort, speed)
+        motion = self._send(client, goal, deadline, timeout_s)
         return with_note(motion, note)
+
+    def _not_applied(self, effort: float | None, speed: float | None) -> str:
+        if self._action_type is ParallelGripperCommand:
+            return ""
+        action = self._action_type.__name__
+        note = effort_ignored_message(action) if effort is not None else ""
+        if speed is not None:
+            note += speed_ignored_message(action)
+        return note
 
     def _send(
         self,
         client: ActionClient,
         goal,
-        here: float,
         deadline: float,
         timeout_s: float,
     ) -> BackendMotion:
-        sent = client.send_goal_async(goal)
-        handle = wait_for(sent, remaining(deadline))
+        sent = call_on(
+            self._executor, lambda: client.send_goal_async(goal), remaining(deadline)
+        )
+        handle = then(sent, remaining(deadline))
         if handle is None:
-            cancel_when_accepted(sent)
-            return timed_out(here, timeout_s, "goal response")
+            if sent is not None:
+                cancel_when_accepted(sent)
+            return timed_out(self._fresh_position(), timeout_s, "goal response")
         if not handle.accepted:
-            return refused(here, "The controller rejected the goal.")
+            return refused(self._fresh_position(), "The controller rejected the goal.")
 
-        wrapped = wait_for(handle.get_result_async(), remaining(deadline))
+        asked = call_on(self._executor, handle.get_result_async, remaining(deadline))
+        wrapped = then(asked, remaining(deadline))
         if wrapped is None:
-            cancelled = wait_for(handle.cancel_goal_async(), STATE_WAIT_S)
+            cancelling = call_on(self._executor, handle.cancel_goal_async, STATE_WAIT_S)
             return timed_out(
-                self._position_or(here), timeout_s, "result", cancel_note(cancelled)
+                self._fresh_position(),
+                timeout_s,
+                "result",
+                cancel_note(then(cancelling, STATE_WAIT_S)),
             )
 
-        here = self._position_or(here)
         return motion_from_result(
             wrapped.status,
-            self._result_position(wrapped.result, here),
+            self._result_position(wrapped.result, self._fresh_position()),
             wrapped.result.stalled,
             wrapped.result.reached_goal,
         )
 
     def health(self) -> BackendHealth:
         client = self._ready_client()
-        state_fresh = self._joint_known() and self._await_state()
+        problem = self._description_problem()
+        state_fresh = problem is None and self._await_state()
         return health_from(
             action_ready=client is not None,
             state_fresh=state_fresh,
@@ -312,24 +350,25 @@ class RosGripperBackend:
                 f"{DESCRIPTION_TOPIC} "
                 f"{'received' if self._description else 'absent'} "
                 f"under '{self._node.get_namespace()}'."
+                + ("" if problem is None else f" {problem}")
             ),
         )
 
-    def _joint_known(self) -> bool:
+    def _description_problem(self) -> str | None:
         try:
             self.joint_geometry()
-        except (RuntimeError, ValueError):
-            return False
-        return True
+        except (RuntimeError, ValueError) as error:
+            return str(error)
+        return None
 
     def _on_description(self, message: String) -> None:
         self._description = message.data
 
-    def _position_or(self, fallback: float) -> float:
+    def _fresh_position(self) -> float | None:
         latest = self._states.latest
-        if latest is None:
-            return fallback
-        return position_of(latest, self._joint.name, fallback)
+        if latest is None or not self._states.fresh():
+            return None
+        return position_of(latest, self._joint.name, None)
 
     def _await_description(self) -> bool:
         return poll_until(lambda: self._description, DESCRIPTION_WAIT_S) is not None
@@ -366,21 +405,21 @@ class RosGripperBackend:
             return "absent"
         return f"ready ({self._action_type.__name__})"
 
-    def _goal(self, position_rad: float, effort: float, speed_m_s: float | None):
+    def _goal(self, position_rad: float, effort: float, speed: float | None):
         goal = self._action_type.Goal()
-        nominal_n = effort * DRIVER_FULL_SCALE_EFFORT_N
+        nominal_n = effort * self._scale.max_force_n
         if self._action_type is ParallelGripperCommand:
             goal.command.name = [self._joint.name]
             goal.command.position = [position_rad]
             goal.command.effort = [nominal_n]
-            if speed_m_s is not None:
-                goal.command.velocity = [speed_m_s]
+            if speed is not None:
+                goal.command.velocity = [speed * self._scale.max_speed_m_s]
         else:
             goal.command.position = position_rad
             goal.command.max_effort = nominal_n
         return goal
 
-    def _result_position(self, result, fallback: float) -> float:
+    def _result_position(self, result, fallback: float | None) -> float | None:
         if self._action_type is ParallelGripperCommand:
             return result_position_of(result.state, self._joint.name, fallback)
         return result.position

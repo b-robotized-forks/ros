@@ -8,13 +8,17 @@ description it is connected to, a test double has a built-in one. This is what
 lets the same tool surface sit on the ROS driver, real or simulated, or on a
 test double without any of them leaking into the tool signatures.
 
-The vocabulary is the `gripper_cmd` action's: a position, an effort and an
-optional speed in m/s in, `reached_goal` and `stalled` out. No speed means the
-controller's own. A stall on a close is how the driver reports
+The vocabulary is the `gripper_cmd` action's: a position, an optional effort
+and an optional speed in, `reached_goal` and `stalled` out. Effort and speed are
+fractions of the gripper's own range, 0.0 its minimum and 1.0 its maximum, and
+the backend scales them to whatever its controller takes. No effort means the
+model's default, no speed the controller's own. A backend whose controller
+cannot apply one says so in the motion's detail. A stall on a close is how the driver reports
 an object between the fingers, so backends pass it through untouched and never
 decide for the caller whether it was wanted. `refused` is set when the backend
 rejected the goal before any motion, typically the action server turning it
-down; `timed_out` when the motion outlived its deadline.
+down; `timed_out` when the motion outlived its deadline. A position the backend
+could not read fresh is `None`, never the commanded one.
 
 This contract is not MCP-specific: every Python client of the ROS driver wants
 "move to a position with an effort, report reached or stalled". Its home is
@@ -36,7 +40,7 @@ class BackendState:
 
 @dataclass(frozen=True)
 class BackendMotion:
-    final_position_rad: float
+    final_position_rad: float | None
     reached_goal: bool
     stalled: bool
     refused: bool = False
@@ -62,9 +66,9 @@ class GripperBackend(Protocol):
     def move_to(
         self,
         position_rad: float,
-        effort: float,
+        effort: float | None,
         timeout_s: float,
-        speed_m_s: float | None = None,
+        speed: float | None = None,
     ) -> BackendMotion: ...
 
     def health(self) -> BackendHealth: ...

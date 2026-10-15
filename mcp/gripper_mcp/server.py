@@ -10,8 +10,10 @@ import argparse
 from collections.abc import Callable
 from inspect import cleandoc
 from pathlib import Path
+from typing import Annotated
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from gripper_mcp.backend import GripperBackend
 from gripper_mcp.config import (
@@ -36,6 +38,8 @@ from gripper_mcp.tactile_service import TactileService
 
 DEFAULT_WIRING = Path("grippers.yaml")
 DEFAULT_PORT = 8300
+
+Finite = Annotated[float, Field(allow_inf_nan=False)]
 
 INSTRUCTIONS = (
     "Tools for controlling Robotiq 2F adaptive grippers. Call gripper_list_grippers "
@@ -94,7 +98,7 @@ EFFORT_ARG = (
     "effort: Grip effort from 0.0 (the gripper's minimum force) to 1.0 (its "
     "maximum), clamped. Omit for the model's default; lower it for fragile "
     "objects. Not a force in newtons: the force applied depends on the speed, "
-    "the fingers and the object."
+    "the fingers and the object. Not applied on ROS 2 Humble (the detail says so)."
 )
 SPEED_ARG = (
     "speed_mm_s: Speed of each finger in mm/s, clamped to the model's "
@@ -125,7 +129,7 @@ def build_backend(config: GripperConfig, spec: GripperModelSpec) -> GripperBacke
         ) from error
     if RosGraph.shutdown not in SHUTDOWN_HOOKS:
         SHUTDOWN_HOOKS.append(RosGraph.shutdown)
-    return RosGripperBackend(config.name, config.namespace)
+    return RosGripperBackend(config.name, config.namespace, spec.defaults.effort)
 
 
 TactileFactory = Callable[[GripperConfig, GripperModelSpec], TactileBackend | None]
@@ -245,8 +249,8 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
     )
     def gripper_open(
         gripper_name: str,
-        effort: float | None = None,
-        speed_mm_s: float | None = None,
+        effort: Finite | None = None,
+        speed_mm_s: Finite | None = None,
     ) -> GripperMotionResult:
         return service.open_fully(gripper_name, effort, speed_mm_s)
 
@@ -260,8 +264,8 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
     )
     def gripper_close(
         gripper_name: str,
-        effort: float | None = None,
-        speed_mm_s: float | None = None,
+        effort: Finite | None = None,
+        speed_mm_s: Finite | None = None,
     ) -> GripperMotionResult:
         return service.close_fully(gripper_name, effort, speed_mm_s)
 
@@ -274,9 +278,9 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
     )
     def gripper_move_to(
         gripper_name: str,
-        position_mm: float,
-        effort: float | None = None,
-        speed_mm_s: float | None = None,
+        position_mm: Finite,
+        effort: Finite | None = None,
+        speed_mm_s: Finite | None = None,
     ) -> GripperMotionResult:
         return service.move_to_opening(gripper_name, position_mm, effort, speed_mm_s)
 

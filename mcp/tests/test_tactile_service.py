@@ -20,6 +20,8 @@ SPEC = load_model_specs(SPEC_DIR, {MODEL})[MODEL]
 BENCH_REST_COUNTS = 12540
 BENCH_REST_NOISE_SIGNAL = 0.035
 BENCH_EXTERNAL_HOLD_SIGNAL = 0.8
+UNSETTLED_CLOSE_MM = 1.87
+PADS_PRESSING_EACH_OTHER_SIGNAL = 1.0
 
 
 class ScriptedPads:
@@ -232,6 +234,31 @@ def test_verifying_after_closing_on_nothing_says_so():
 
     assert verification.verdict == "closed_on_nothing"
     assert verification.opening_mm == pytest.approx(FULLY_CLOSED_MM)
+
+
+def test_verifying_right_after_an_empty_close_that_has_not_settled_says_so():
+    quiet = uniform_frame(BENCH_REST_COUNTS)
+    pads = ScriptedPads([quiet])
+    gripper = MockGripperBackend(
+        sleep_fn=lambda _seconds: None, reports_short_mm=UNSETTLED_CLOSE_MM
+    )
+    grippers = GripperService(
+        specs={MODEL: SPEC},
+        configs={
+            ARM: GripperConfig(name=ARM, model=MODEL, namespace="/left", tactile="ros")
+        },
+        backends={ARM: gripper},
+        tactile_sources={ARM: pads.name},
+    )
+    tactile = TactileService(grippers, {ARM: (pads, SPEC.tactile)})
+    tactile.tare(ARM)
+
+    grippers.close_fully(ARM)
+    pads.live = frame_at_signal(PADS_PRESSING_EACH_OTHER_SIGNAL, quiet)
+    verification = tactile.verify_grasp(ARM)
+
+    assert verification.opening_mm == pytest.approx(UNSETTLED_CLOSE_MM)
+    assert verification.verdict == "closed_on_nothing"
 
 
 def test_a_stall_outside_the_pads_is_not_a_hold():

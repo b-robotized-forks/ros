@@ -1,4 +1,5 @@
 import asyncio
+import math
 import sys
 
 import pytest
@@ -6,8 +7,10 @@ import yaml
 from fakes.gripper import MockGripperBackend
 from fakes.tactile import MockTactileBackend
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
+from pydantic import TypeAdapter, ValidationError
 
-from gripper_mcp.server import build_mcp, build_services
+from gripper_mcp.server import Finite, build_mcp, build_services
 
 EXPECTED_TOOLS = {
     "gripper_list_grippers",
@@ -201,3 +204,17 @@ def test_a_wiring_entry_names_the_missing_ros_install(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="rclpy"):
         build_services(write_wiring(tmp_path))
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_the_motion_number_type_refuses_what_is_not_finite(value):
+    with pytest.raises(ValidationError):
+        TypeAdapter(Finite).validate_python(value)
+
+
+def test_a_nan_opening_is_refused_at_the_wire(mcp):
+    with pytest.raises(ToolError):
+        call(mcp, "gripper_move_to", gripper_name="left", position_mm=math.nan)
+
+    state = call(mcp, "gripper_get_state", gripper_name="left")
+    assert state.opening_mm == pytest.approx(85.0)

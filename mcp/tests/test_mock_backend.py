@@ -1,8 +1,13 @@
 import pytest
 
-from fakes.gripper import MOCK_GEOMETRY, MOCK_JOINT, MockGripperBackend
+from fakes.gripper import (
+    MOCK_GEOMETRY,
+    MOCK_JOINT,
+    NOMINAL_TRAVEL_SPEED_MM_S,
+    MockGripperBackend,
+)
 from gripper_mcp.backend import GripperBackend
-from gripper_mcp.units import MM_PER_M, Stroke
+from gripper_mcp.units import Stroke
 
 CLOSED = MOCK_GEOMETRY.knuckle_rad_closed
 OPEN = MOCK_GEOMETRY.knuckle_rad_open
@@ -129,6 +134,8 @@ def test_a_named_speed_is_per_finger_so_the_opening_closes_twice_as_fast():
     slept: list[float] = []
     backend = MockGripperBackend(sleep_fn=slept.append)
 
-    backend.move_to(CLOSED, EFFORT, GENEROUS_TIMEOUT_S, FINGER_SPEED_MM_S / MM_PER_M)
+    speed = FINGER_SPEED_MM_S / NOMINAL_TRAVEL_SPEED_MM_S
+
+    backend.move_to(CLOSED, EFFORT, GENEROUS_TIMEOUT_S, speed)
 
     assert sum(slept) == pytest.approx(FULL_CLOSE_AT_20_MM_S_S)

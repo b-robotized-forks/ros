@@ -4,6 +4,7 @@ from gripper_mcp.ros_messages import (
     STATUS_SUCCEEDED,
     advertised_type,
     cancel_note,
+    effort_ignored_message,
     health_from,
     motion_from_result,
     no_state_message,
@@ -29,6 +30,14 @@ def test_a_speed_on_a_controller_without_one_says_it_was_not_applied():
     assert message.startswith("Speed not applied")
     assert "GripperCommand" in message
     assert "at its own speed" in message
+
+
+def test_an_effort_on_a_controller_that_cannot_apply_one_says_so():
+    message = effort_ignored_message("GripperCommand")
+
+    assert message.startswith("Effort not applied")
+    assert "GripperCommand" in message
+    assert "gripper_force_multiplier" in message
 
 
 def test_a_note_goes_in_front_of_the_motion_detail():

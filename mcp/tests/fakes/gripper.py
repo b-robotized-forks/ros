@@ -12,9 +12,14 @@ hardware is the ROS driver's job, on ros2_control's fake hardware
 (`use_fake_hardware`, see mcp/demo), so that the controller and the action are
 exercised too.
 
-A move that names a speed travels at it and remembers it (`last_speed_m_s`);
-one that names none travels at `travel_speed_mm_s`. Both are per finger, as
-on the real gripper, so the opening changes at twice that.
+A move that names a speed, a fraction of full speed, travels at that fraction
+of `travel_speed_mm_s` and remembers it (`last_speed`); one that names none
+travels at full speed. Speeds are per finger, as on the real gripper, so the
+opening changes at twice that. A move that names no effort holds with
+`DEFAULT_EFFORT`, as the ROS backend sends the model's default. With
+`reports_short_mm`, a move that reaches its goal reports the fingers that far
+short of it, the way the real controller calls a move done before the fingers
+settle.
 
 Travel is simulated through an injected `sleep_fn` so tests run instantly while
 a container still moves in something like real time.
@@ -25,7 +30,6 @@ from collections.abc import Callable
 
 from gripper_mcp.backend import BackendHealth, BackendMotion, BackendState
 from gripper_mcp.units import (
-    MM_PER_M,
     GripperGeometry,
     JointGeometry,
     Stroke,
@@ -39,6 +43,7 @@ MOCK_STROKE = Stroke(max_opening_mm=85.0, closed_tolerance_mm=1.5)
 MOCK_GEOMETRY = GripperGeometry.of(MOCK_STROKE, MOCK_JOINT)
 
 NOMINAL_TRAVEL_SPEED_MM_S = 150.0
+DEFAULT_EFFORT = 0.2
 FINGERS = 2
 
 
@@ -51,6 +56,7 @@ class MockGripperBackend:
         travel_speed_mm_s: float = NOMINAL_TRAVEL_SPEED_MM_S,
         sleep_fn: Callable[[float], None] = time.sleep,
         stroke: Stroke = MOCK_STROKE,
+        reports_short_mm: float = 0.0,
     ) -> None:
         if object_width_mm is not None and not (
             stroke.min_opening_mm < object_width_mm < stroke.max_opening_mm
@@ -63,12 +69,14 @@ class MockGripperBackend:
         self._object_width_mm = object_width_mm
         self._travel_speed_mm_s = travel_speed_mm_s
         self._sleep = sleep_fn
+        self._reports_short_mm = reports_short_mm
         self._joint = MOCK_JOINT
         self._geometry = GripperGeometry.of(stroke, self._joint)
 
         self._position_rad = self._joint.rad_open
         self._holding_effort = 0.0
-        self.last_speed_m_s: float | None = None
+        self.last_speed: float | None = None
+        self.last_effort: float | None = None
 
     def joint_geometry(self) -> JointGeometry:
         return self._joint
@@ -87,14 +95,14 @@ class MockGripperBackend:
     def move_to(
         self,
         position_rad: float,
-        effort: float,
+        effort: float | None,
         timeout_s: float,
-        speed_m_s: float | None = None,
+        speed: float | None = None,
     ) -> BackendMotion:
-        self.last_speed_m_s = speed_m_s
-        speed_mm_s = (
-            self._travel_speed_mm_s if speed_m_s is None else speed_m_s * MM_PER_M
-        )
+        self.last_speed = speed
+        self.last_effort = effort
+        speed_mm_s = self._travel_speed_mm_s * (1.0 if speed is None else speed)
+        held_effort = DEFAULT_EFFORT if effort is None else effort
         target = clamp(position_rad, self._joint.rad_open, self._joint.rad_closed)
         stop_at, stalled = self._resolve_stop(target)
 
@@ -116,8 +124,10 @@ class MockGripperBackend:
             )
 
         self._sleep(duration_s)
+        if not stalled:
+            stop_at = self._short_of(stop_at)
         self._position_rad = stop_at
-        self._holding_effort = effort if stalled else 0.0
+        self._holding_effort = held_effort if stalled else 0.0
 
         return BackendMotion(
             final_position_rad=stop_at,
@@ -137,6 +147,10 @@ class MockGripperBackend:
             controller_active=True,
             detail=f"Mock gripper at {opening_mm:.1f} mm.",
         )
+
+    def _short_of(self, target: float) -> float:
+        opening = self.opening_mm_for(target) + self._reports_short_mm
+        return self.position_rad_for(opening)
 
     def _resolve_stop(self, target: float) -> tuple[float, bool]:
         closing = target > self._position_rad

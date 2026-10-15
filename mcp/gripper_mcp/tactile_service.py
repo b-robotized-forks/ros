@@ -99,8 +99,9 @@ class TactileService:
     def verify_grasp(self, gripper_name: str) -> GraspVerification:
         opening_mm = self._grippers.get_state(gripper_name).opening_mm
         reading = self._read_at(gripper_name, opening_mm)
-        stroke = self._grippers.stroke_of(gripper_name)
-        verdict = judge_grasp(reading.contact, stroke.fingers_met(opening_mm))
+        verdict = judge_grasp(
+            reading.contact, self._grippers.fingers_met(gripper_name, opening_mm)
+        )
 
         return GraspVerification(
             gripper_name=gripper_name,
