@@ -173,8 +173,8 @@ protected:
       owned_commands_.clear();
 
       auto add = [&](const std::string& joint, const std::string& name, double* value) {
-         owned_states_.push_back(test_compat::makeStateInterface(joint, name, value));
-         states.push_back(test_compat::loan(owned_states_.back()));
+         owned_states_.push_back(test_compat::bindState(joint, name, value));
+         states.push_back(test_compat::loan(owned_states_.back().interface));
       };
 
       add(kJoint, "position", &position_);
@@ -183,8 +183,8 @@ protected:
       {
          add(kJoint, "object_status", &object_status_);
       }
-      owned_commands_.push_back(test_compat::makeCommandInterface(kJoint, "position", &position_command_));
-      commands.push_back(test_compat::loanCommand(owned_commands_.back()));
+      owned_commands_.push_back(test_compat::bindCommand(kJoint, "position", &position_command_));
+      commands.push_back(test_compat::loanCommand(owned_commands_.back().interface));
 
       controller_->assign_interfaces(std::move(commands), std::move(states));
    }
@@ -221,9 +221,17 @@ protected:
 
    void update(double seconds_from_now = 0.0)
    {
+      for(const auto& state : owned_states_)
+      {
+         test_compat::sync(state);
+      }
       ASSERT_EQ(controller_interface::return_type::OK,
                 controller_->update(client_node_->now() + rclcpp::Duration::from_seconds(seconds_from_now),
                                     rclcpp::Duration::from_seconds(1.0 / kUpdateRate)));
+      for(const auto& command : owned_commands_)
+      {
+         test_compat::syncBack(command);
+      }
    }
 
    void sendGoal(double position)
@@ -264,8 +272,8 @@ protected:
    }
 
    std::unique_ptr<Testable<typename Traits::Controller>> controller_;
-   std::vector<std::shared_ptr<hardware_interface::StateInterface>> owned_states_;
-   std::vector<std::shared_ptr<hardware_interface::CommandInterface>> owned_commands_;
+   std::vector<test_compat::BoundInterface<hardware_interface::StateInterface>> owned_states_;
+   std::vector<test_compat::BoundInterface<hardware_interface::CommandInterface>> owned_commands_;
 
    rclcpp::Node::SharedPtr client_node_;
    typename rclcpp_action::Client<Action>::SharedPtr client_;

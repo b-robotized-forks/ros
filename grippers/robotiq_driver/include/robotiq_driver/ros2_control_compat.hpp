@@ -38,11 +38,18 @@
 // own header, and Jazzy's 4.x line keeps moving, so there is no stable version
 // number to compare against.
 //
+// The same line exports interfaces that own their values, through
+// on_export_*_interfaces(). Humble can only export interfaces bound to a
+// member's address, which Rolling removed; ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES
+// picks between the two.
+//
 // Humble EOL: delete this header and its CMake entry; OnInitParams collapses to
-// HardwareComponentInterfaceParams everywhere it is named.
+// HardwareComponentInterfaceParams everywhere it is named, and the
+// ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES branches stay unconditionally.
 
 #if __has_include(<hardware_interface/types/hardware_component_interface_params.hpp>)
 #include <hardware_interface/types/hardware_component_interface_params.hpp>
+#define ROBOTIQ_DRIVER_INTERFACES_OWN_VALUES 1
 #else
 #include <hardware_interface/hardware_info.hpp>
 #endif

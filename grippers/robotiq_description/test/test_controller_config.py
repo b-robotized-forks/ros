@@ -27,9 +27,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 # The gripper controller can only activate if the command interfaces it is
-# configured to claim exist under the exact names the hardware exports (see
-# RobotiqGripperHardwareInterface::export_command_interfaces in
-# robotiq_driver). A mismatch is silent until runtime, where
+# configured to claim exist under the exact names the hardware exports (the
+# command interface names in robotiq_driver's hardware_interface.hpp). A
+# mismatch is silent until runtime, where
 # robotiq_gripper_controller fails to activate.
 #
 # Every config robotiq_control.launch.py can pick is checked here regardless of

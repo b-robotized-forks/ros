@@ -33,6 +33,7 @@
 
 #include <memory>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -131,26 +132,70 @@ inline hardware_interface::LoanedStateInterface loan(
    return loanAs<hardware_interface::LoanedStateInterface>(state_interface);
 }
 
-// The value-pointer constructor lets a test move a reading without going through
-// hardware; Jazzy and later deprecate it but keep it.
-inline std::shared_ptr<hardware_interface::StateInterface> makeStateInterface(const std::string& joint,
-                                                                              const std::string& interface,
-                                                                              double* value)
+// A handle over a double the test owns, so a test can move a reading without
+// going through hardware. Up to Lyrical the handle reads the double through its
+// address; Rolling removed that constructor, so there the handle owns a copy
+// that sync() refreshes. A template, so that the shape a distro lacks is never
+// compiled.
+template <typename InterfaceT>
+struct BoundInterface
 {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-   return std::make_shared<hardware_interface::StateInterface>(joint, interface, value);
-#pragma GCC diagnostic pop
+   std::shared_ptr<InterfaceT> interface;
+   double* value;
+};
+
+// Call before each controller update, after the test has moved the double.
+// Blocking on the handle's lock: a skipped copy would leave the previous value.
+template <typename InterfaceT>
+void sync(const BoundInterface<InterfaceT>& bound)
+{
+   if constexpr(!std::is_constructible_v<InterfaceT, const std::string&, const std::string&, double*>)
+   {
+      std::ignore = bound.interface->set_value(*bound.value, true);
+   }
 }
 
-inline std::shared_ptr<hardware_interface::CommandInterface> makeCommandInterface(const std::string& joint,
-                                                                                  const std::string& interface,
-                                                                                  double* value)
+// The reverse, after each controller update: a command handle holds what the
+// controller wrote, and the test's double has to fetch it.
+template <typename InterfaceT>
+void syncBack(const BoundInterface<InterfaceT>& bound)
 {
+   if constexpr(!std::is_constructible_v<InterfaceT, const std::string&, const std::string&, double*>)
+   {
+      std::ignore = bound.interface->get_value(*bound.value, true);
+   }
+}
+
+template <typename InterfaceT>
+BoundInterface<InterfaceT> bind(const std::string& joint, const std::string& interface, double* value)
+{
+   if constexpr(std::is_constructible_v<InterfaceT, const std::string&, const std::string&, double*>)
+   {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-   return std::make_shared<hardware_interface::CommandInterface>(joint, interface, value);
+      return {std::make_shared<InterfaceT>(joint, interface, value), value};
 #pragma GCC diagnostic pop
+   }
+   else
+   {
+      BoundInterface<InterfaceT> bound{std::make_shared<InterfaceT>(joint, interface), value};
+      sync(bound);
+      return bound;
+   }
+}
+
+inline BoundInterface<hardware_interface::StateInterface> bindState(const std::string& joint,
+                                                                    const std::string& interface,
+                                                                    double* value)
+{
+   return bind<hardware_interface::StateInterface>(joint, interface, value);
+}
+
+inline BoundInterface<hardware_interface::CommandInterface> bindCommand(const std::string& joint,
+                                                                        const std::string& interface,
+                                                                        double* value)
+{
+   return bind<hardware_interface::CommandInterface>(joint, interface, value);
 }
 
 // Same two shapes as the state loan, with the shared_ptr one taking a deleter.

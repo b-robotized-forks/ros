@@ -41,9 +41,9 @@
             <!-- With Gazebo or Hardware, they handle mimic joints, so we only need this command interface activated -->
             <joint name="${prefix}robotiq_85_left_knuckle_joint">
                 <command_interface name="position" />
-                <!-- The real hardware exports these two from
-                     export_command_interfaces() instead of the URDF, and its on_init
-                     rejects a joint declaring more than one command interface. Mock
+                <!-- The real hardware exports these two itself instead of from
+                     the URDF, and its on_init rejects a joint declaring more than
+                     one command interface. Mock
                      hardware exposes only what the URDF declares, so declare them for
                      the mock alone: without them parallel_gripper_action_controller
                      (Jazzy and newer) cannot claim max_effort_interface /
