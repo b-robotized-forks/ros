@@ -264,3 +264,30 @@ def test_the_pads_default_to_the_gripper_namespace_unless_told_otherwise():
 
     assert same.tactile_namespace is None
     assert apart.tactile_namespace == "/left_tsf"
+
+
+@pytest.mark.parametrize("name", ["left-arm", "left arm", "", "gauche/droite"])
+def test_a_gripper_name_ros_cannot_take_is_rejected_by_name(tmp_path, name):
+    path = wiring_file(
+        tmp_path, [{"name": name, "model": "robotiq_2f_85", "namespace": "/left"}]
+    )
+
+    with pytest.raises(ValidationError, match=f"gripper name '{name}'"):
+        load_gripper_configs(path)
+
+
+def test_a_tactile_namespace_without_tactile_is_rejected(tmp_path):
+    path = wiring_file(
+        tmp_path,
+        [
+            {
+                "name": "left",
+                "model": "robotiq_2f_85",
+                "namespace": "/left",
+                "tactile_namespace": "/left_tsf",
+            }
+        ],
+    )
+
+    with pytest.raises(ValidationError, match="tactile_namespace without tactile"):
+        load_gripper_configs(path)

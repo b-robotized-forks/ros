@@ -24,6 +24,7 @@ Every model refuses unknown keys: these files are hand-edited per host, and a
 typo that silently dropped a field would point the server at the wrong robot.
 """
 
+import re
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
@@ -36,6 +37,7 @@ from gripper_mcp.units import Stroke
 
 SPEC_DIR = Path(str(files("gripper_mcp").joinpath("datasheets")))
 TACTILE_SUBDIR = "tactile"
+ROS_NAME_PART = re.compile(r"[A-Za-z0-9_]+")
 
 
 class StrictModel(BaseModel):
@@ -51,11 +53,21 @@ class GripperConfig(StrictModel):
     tactile_namespace: str | None = None
 
     @model_validator(mode="after")
-    def _needs_a_namespace(self) -> "GripperConfig":
+    def _names_a_reachable_gripper(self) -> "GripperConfig":
+        if not ROS_NAME_PART.fullmatch(self.name):
+            raise ValueError(
+                f"gripper name '{self.name}' can only hold letters, digits and "
+                "underscores: it becomes part of the server's ROS node names"
+            )
         if not self.namespace:
             raise ValueError(
                 f"gripper '{self.name}' has no namespace; "
                 "an empty namespace would address the root graph"
+            )
+        if self.tactile_namespace is not None and self.tactile is None:
+            raise ValueError(
+                f"gripper '{self.name}' sets tactile_namespace without tactile; "
+                "add `tactile: ros` or drop the namespace"
             )
         return self
 

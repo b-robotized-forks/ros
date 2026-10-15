@@ -23,7 +23,7 @@ EXPECTED_TOOLS = {
     "gripper_tare_tactile",
     "gripper_verify_grasp",
 }
-CLOSING_TOOLS = {"gripper_close", "gripper_move_to"}
+MOTION_TOOLS = {"gripper_open", "gripper_close", "gripper_move_to"}
 TACTILE_READS = {"gripper_read_tactile", "gripper_verify_grasp"}
 CUBE_WIDTH_MM = 40.0
 
@@ -111,14 +111,13 @@ def test_every_tool_documents_itself_without_leading_indent(tools):
         assert tool.description == tool.description.strip(), name
 
 
-def test_tools_that_reduce_the_opening_are_flagged_destructive(tools):
-    for name in CLOSING_TOOLS:
+def test_every_motion_is_flagged_destructive_since_opening_drops_the_part(tools):
+    for name in MOTION_TOOLS:
         assert tools[name].annotations.destructive_hint is True, name
         assert tools[name].annotations.read_only_hint is False, name
 
 
-def test_opening_is_not_destructive_and_reads_are_read_only(tools):
-    assert tools["gripper_open"].annotations.destructive_hint is False
+def test_reads_are_read_only_and_a_tare_is_not_destructive(tools):
     assert tools["gripper_get_state"].annotations.read_only_hint is True
     assert tools["gripper_get_health"].annotations.read_only_hint is True
     for name in TACTILE_READS:

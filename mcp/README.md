@@ -168,6 +168,10 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 
 `grippers.yaml` is host-specific and is mounted at run time, never baked in.
+The image's own command binds `0.0.0.0` inside the container, so a plain
+`docker run -p 127.0.0.1:8300:8300 ...` reaches it; publish the port on
+localhost unless the cell network should see it. The compose files run on the
+host network and pass their own arguments, so they keep the localhost default.
 
 ### Demo, no hardware
 

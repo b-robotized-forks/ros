@@ -18,6 +18,10 @@ Per-pad signals are each pad's fraction of its own ceiling
 (`full_scale_counts / pads`), so one saturated pad reads 1.0 on its own line
 while `contact_signal` stays normalised across both.
 
+Taring is serialised per gripper, the baseline lookup included, so two first
+reads at once take one baseline, not two, and one gripper's 1 s capture never
+holds up another's.
+
 The contact threshold is set at tare time, not copied from the datasheet: the
 rest frames the tare averages also show how noisy the pads are, and the
 threshold is the datasheet floor or `noise_margin` times that measured noise,
@@ -75,11 +79,12 @@ class TactileService:
         self._grippers = grippers
         self._pads = pads
         self._tares: dict[str, Tare] = {}
-        self._tare_lock = threading.Lock()
+        self._tare_locks = {name: threading.Lock() for name in pads}
 
     def tare(self, gripper_name: str) -> TactileTareResult:
         tactile, spec = self._pads_for(gripper_name)
-        tare = self._capture_tare(gripper_name, tactile, spec)
+        with self._tare_locks[gripper_name]:
+            tare = self._capture_tare(gripper_name, tactile, spec)
 
         return TactileTareResult(
             gripper_name=gripper_name,
@@ -135,21 +140,21 @@ class TactileService:
         spec: TactileSpec,
         opening_mm: float,
     ) -> Tare:
-        if gripper_name in self._tares:
-            return self._tares[gripper_name]
-        if not self._grippers.stroke_of(gripper_name).fingers_open(opening_mm):
-            raise TactileUnavailableError(
-                "No tactile baseline yet, and the fingers are not fully open to "
-                "capture one. Open the gripper, or call gripper_tare_tactile."
-            )
-        return self._capture_tare(gripper_name, tactile, spec)
+        with self._tare_locks[gripper_name]:
+            if gripper_name in self._tares:
+                return self._tares[gripper_name]
+            if not self._grippers.stroke_of(gripper_name).fingers_open(opening_mm):
+                raise TactileUnavailableError(
+                    "No tactile baseline yet, and the fingers are not fully open to "
+                    "capture one. Open the gripper, or call gripper_tare_tactile."
+                )
+            return self._capture_tare(gripper_name, tactile, spec)
 
     def _capture_tare(
         self, gripper_name: str, tactile: TactileBackend, spec: TactileSpec
     ) -> Tare:
-        with self._tare_lock:
-            tare = measure_tare(tactile.sample(spec.baseline_s), spec)
-            self._tares[gripper_name] = tare
+        tare = measure_tare(tactile.sample(spec.baseline_s), spec)
+        self._tares[gripper_name] = tare
         return tare
 
     def _reading(

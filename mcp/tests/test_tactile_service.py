@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 from fakes.gripper import MockGripperBackend
 from fakes.tactile import FRAME_RATE_HZ, REST_COUNTS, MockTactileBackend
@@ -22,6 +25,7 @@ BENCH_REST_NOISE_SIGNAL = 0.035
 BENCH_EXTERNAL_HOLD_SIGNAL = 0.8
 UNSETTLED_CLOSE_MM = 1.87
 PADS_PRESSING_EACH_OTHER_SIGNAL = 1.0
+CAPTURE_S = 0.05
 
 
 class ScriptedPads:
@@ -322,3 +326,36 @@ def test_the_listing_shows_which_grippers_have_pads():
 )
 def test_judge_grasp_covers_every_combination(contact, fingers_met, verdict):
     assert judge_grasp(contact, fingers_met) == verdict
+
+
+def test_two_first_reads_at_once_take_one_baseline():
+    quiet = uniform_frame(BENCH_REST_COUNTS)
+    pads = CountingPads([quiet])
+    grippers = GripperService(
+        specs={MODEL: SPEC},
+        configs={
+            ARM: GripperConfig(name=ARM, model=MODEL, namespace="/left", tactile="ros")
+        },
+        backends={ARM: MockGripperBackend(sleep_fn=lambda _seconds: None)},
+        tactile_sources={ARM: pads.name},
+    )
+    tactile = TactileService(grippers, {ARM: (pads, SPEC.tactile)})
+
+    readers = [threading.Thread(target=tactile.read, args=(ARM,)) for _ in range(2)]
+    for reader in readers:
+        reader.start()
+    for reader in readers:
+        reader.join()
+
+    assert pads.captures == 1
+
+
+class CountingPads(ScriptedPads):
+    def __init__(self, rest_frames: list[TactileReading]) -> None:
+        super().__init__(rest_frames)
+        self.captures = 0
+
+    def sample(self, duration_s: float) -> list[TactileReading]:
+        self.captures += 1
+        time.sleep(CAPTURE_S)
+        return super().sample(duration_s)

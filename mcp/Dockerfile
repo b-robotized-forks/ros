@@ -48,4 +48,4 @@ RUN chmod +x /entrypoint.sh
 # Cell wiring is host-specific and is mounted, never baked in (see README).
 EXPOSE 8300
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["--config", "/config/grippers.yaml"]
+CMD ["--config", "/config/grippers.yaml", "--host", "0.0.0.0"]

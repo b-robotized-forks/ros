@@ -60,13 +60,7 @@ READ_ONLY = {
     "idempotent_hint": True,
     "open_world_hint": True,
 }
-OPENS = {
-    "read_only_hint": False,
-    "destructive_hint": False,
-    "idempotent_hint": True,
-    "open_world_hint": True,
-}
-CLOSES = {
+MOVES = {
     "read_only_hint": False,
     "destructive_hint": True,
     "idempotent_hint": True,
@@ -242,7 +236,7 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
 
     @mcp.tool(
         name="gripper_open",
-        annotations=OPENS,
+        annotations=MOVES,
         description=motion_description(
             "Open one gripper fully, releasing anything it holds."
         ),
@@ -256,7 +250,7 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
 
     @mcp.tool(
         name="gripper_close",
-        annotations=CLOSES,
+        annotations=MOVES,
         description=motion_description(
             "Close one gripper fully. A full close with nothing between the "
             'fingers is outcome="reached".'
@@ -271,7 +265,7 @@ def register_gripper_tools(mcp: FastMCP, service: GripperService) -> None:
 
     @mcp.tool(
         name="gripper_move_to",
-        annotations=CLOSES,
+        annotations=MOVES,
         description=motion_description(
             "Move one gripper to a specific position.", POSITION_ARG
         ),
