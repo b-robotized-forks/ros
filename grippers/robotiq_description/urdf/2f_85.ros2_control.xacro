@@ -17,13 +17,25 @@
         transport:=serial
         tcp_host:=''
         tcp_port:=54321
+        rw_rate:=0
+        scheduling_policy:=''
+        thread_priority:=50
+        cpu_affinity:=''
         gripper_speed_multiplier:=1.0
         gripper_force_multiplier:=0.5
         gripper_max_speed:=0.150
         gripper_max_force:=235.0
         gripper_closed_position:=0.7929">
 
-        <ros2_control name="${name}" type="system">
+        <!-- Async only for the real driver: the mock and simulator plugins stay in the
+             controller manager's loop. An empty scheduling_policy keeps it synchronous. -->
+        <xacro:property name="is_async" value="${scheduling_policy != '' and not (use_fake_hardware or sim_gazebo or sim_topic_based)}"/>
+        <ros2_control name="${name}" type="system" rw_rate="${rw_rate}" is_async="${is_async}">
+            <xacro:robotiq_2f_async_properties
+                is_async="${is_async}"
+                scheduling_policy="${scheduling_policy}"
+                thread_priority="${thread_priority}"
+                cpu_affinity="${cpu_affinity}"/>
             <!-- Plugins -->
             <xacro:robotiq_2f_hardware
                 sim_gazebo="${sim_gazebo}"

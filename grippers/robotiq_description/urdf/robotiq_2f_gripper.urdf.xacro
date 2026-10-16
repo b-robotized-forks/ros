@@ -11,6 +11,11 @@
     <xacro:arg name="transport" default="serial" />
     <xacro:arg name="tcp_host" default="" />
     <xacro:arg name="tcp_port" default="54321" />
+    <!-- ros2_control async execution; an empty scheduling_policy keeps the driver synchronous. -->
+    <xacro:arg name="rw_rate" default="0" />
+    <xacro:arg name="scheduling_policy" default="" />
+    <xacro:arg name="thread_priority" default="50" />
+    <xacro:arg name="cpu_affinity" default="" />
     <xacro:arg name="sim_topic_based" default="false" />
     <xacro:arg name="sim_joint_commands_topic" default="/sim/joint_commands" />
     <xacro:arg name="sim_joint_states_topic" default="/sim/joint_states" />
@@ -25,6 +30,8 @@
     <link name="world" />
     <xacro:robotiq_gripper name="RobotiqGripperHardwareInterface" prefix="" parent="world" use_fake_hardware="$(arg use_fake_hardware)" com_port="$(arg com_port)" baudrate="$(arg baudrate)"
         transport="$(arg transport)" tcp_host="$(arg tcp_host)" tcp_port="$(arg tcp_port)"
+        rw_rate="$(arg rw_rate)" scheduling_policy="$(arg scheduling_policy)"
+        thread_priority="$(arg thread_priority)" cpu_affinity="$(arg cpu_affinity)"
         sim_topic_based="$(arg sim_topic_based)"
         sim_joint_commands_topic="$(arg sim_joint_commands_topic)" sim_joint_states_topic="$(arg sim_joint_states_topic)"
         sim_isaac="$(arg sim_isaac)" isaac_joint_commands="$(arg isaac_joint_commands)" isaac_joint_states="$(arg isaac_joint_states)">

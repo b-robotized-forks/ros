@@ -20,6 +20,10 @@
         transport:=serial
         tcp_host:=''
         tcp_port:=54321
+        rw_rate:=0
+        scheduling_policy:=''
+        thread_priority:=50
+        cpu_affinity:=''
         gripper_speed_multiplier:=1.0
         gripper_force_multiplier:=0.5
         gripper_max_speed:=0.250
@@ -53,6 +57,10 @@
                 transport="${transport}"
                 tcp_host="${tcp_host}"
                 tcp_port="${tcp_port}"
+                rw_rate="${rw_rate}"
+                scheduling_policy="${scheduling_policy}"
+                thread_priority="${thread_priority}"
+                cpu_affinity="${cpu_affinity}"
                 gripper_speed_multiplier="${gripper_speed_multiplier}"
                 gripper_force_multiplier="${gripper_force_multiplier}"
                 gripper_max_speed="${gripper_max_speed}"

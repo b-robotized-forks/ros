@@ -322,3 +322,46 @@ def test_sim_controller_config_claims_only_what_the_sim_urdf_declares(model, joi
     assert "max_effort_interface" not in params
     assert "max_velocity_interface" not in params
     assert set(params["state_interfaces"]) <= state_interfaces_of(ros2_control, joint)
+
+
+@requires_xacro
+@pytest.mark.parametrize("model", MODELS)
+def test_the_driver_is_synchronous_by_default(model):
+    ros2_control = expand(model, False)
+    assert ros2_control.get("is_async") == "False"
+    assert ros2_control.get("rw_rate") == "0"
+    assert ros2_control.find("properties") is None
+
+
+@requires_xacro
+@pytest.mark.parametrize("model", MODELS)
+def test_async_settings_reach_the_ros2_control_tag(model):
+    # Same three-file chain as baudrate, but into the <ros2_control> tag and its
+    # <properties>, which ros2_control reads before the plugin is loaded.
+    ros2_control = expand(
+        model,
+        False,
+        "scheduling_policy:=detached",
+        "rw_rate:=100",
+        "thread_priority:=60",
+        "cpu_affinity:=[2,3]",
+    )
+    assert ros2_control.get("is_async") == "True"
+    assert ros2_control.get("rw_rate") == "100"
+    async_properties = ros2_control.find("properties/async")
+    assert async_properties.get("scheduling_policy") == "detached"
+    assert async_properties.get("thread_priority") == "60"
+    assert async_properties.get("affinity") == "[2,3]"
+
+    without_affinity = expand(model, False, "scheduling_policy:=detached")
+    assert "affinity" not in without_affinity.find("properties/async").attrib
+
+
+@requires_xacro
+@pytest.mark.parametrize("model", MODELS)
+def test_mock_and_simulation_stay_synchronous(model):
+    # Only the real driver runs async; the other plugins stay in the controller
+    # manager's loop even when a scheduling policy is passed.
+    assert expand(model, True, "scheduling_policy:=detached").get("is_async") == "False"
+    topic_based = expand(model, False, TOPIC_BASED_ARG, "scheduling_policy:=detached")
+    assert topic_based.get("is_async") == "False"

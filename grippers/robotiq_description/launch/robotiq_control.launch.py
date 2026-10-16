@@ -164,7 +164,8 @@ CONTROLLER_MANAGER_TIMEOUT = "15"
 def hardware_component_names(context):
     """Names of the <ros2_control> components in the description the launch loads."""
     urdf = perform_substitutions(context, [xacro_command()])
-    return re.findall(r'<ros2_control\s+name="([^"]+)"', urdf)
+    # xacro writes attributes in alphabetical order, so name need not come first.
+    return re.findall(r'<ros2_control\b[^>]*?\sname="([^"]+)"', urdf)
 
 
 # Joint carrying the position command, per gripper_model. The launch argument
@@ -249,6 +250,18 @@ def xacro_command():
             " ",
             "tcp_port:=",
             LaunchConfiguration("tcp_port"),
+            " ",
+            "rw_rate:=",
+            LaunchConfiguration("rw_rate"),
+            " ",
+            "scheduling_policy:=",
+            LaunchConfiguration("scheduling_policy"),
+            " ",
+            "thread_priority:=",
+            LaunchConfiguration("thread_priority"),
+            " ",
+            "cpu_affinity:=",
+            LaunchConfiguration("cpu_affinity"),
             " ",
             "sim_topic_based:=",
             LaunchConfiguration("sim_topic_based"),
@@ -341,6 +354,34 @@ def generate_launch_description():
             name="tcp_port",
             default_value="54321",
             description="TCP port of the bridge (UR Tool Communication Forwarder: 54321)",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="rw_rate",
+            default_value="0",
+            description="read()/write() rate of the hardware component in Hz; 0 uses the controller manager's rate",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="scheduling_policy",
+            default_value="",
+            description="'detached' or 'synchronized' runs the real driver asynchronously; empty keeps it in the controller manager's loop",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="thread_priority",
+            default_value="50",
+            description="Priority of the async thread",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="cpu_affinity",
+            default_value="",
+            description="CPU cores of the async thread as a list, e.g. '[2,3]'; empty leaves it to the scheduler",
         )
     )
     args.append(

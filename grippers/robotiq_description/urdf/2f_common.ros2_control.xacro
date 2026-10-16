@@ -57,6 +57,21 @@
         </hardware>
     </xacro:macro>
 
+    <!-- The <properties> of an async component. rw_rate and is_async are attributes of
+         the <ros2_control> tag itself, set by the model's ros2_control xacro. -->
+    <xacro:macro name="robotiq_2f_async_properties" params="is_async scheduling_policy thread_priority cpu_affinity">
+        <xacro:if value="${is_async}">
+            <properties>
+                <xacro:if value="${cpu_affinity == ''}">
+                    <async scheduling_policy="${scheduling_policy}" thread_priority="${thread_priority}" print_warnings="true"/>
+                </xacro:if>
+                <xacro:unless value="${cpu_affinity == ''}">
+                    <async scheduling_policy="${scheduling_policy}" thread_priority="${thread_priority}" affinity="${cpu_affinity}" print_warnings="true"/>
+                </xacro:unless>
+            </properties>
+        </xacro:if>
+    </xacro:macro>
+
     <!-- A mimic joint the simulator owns: declared so /joint_states carries it,
          but never commanded. Gazebo derives mimic joints itself, so it gets no
          state interfaces either. -->
