@@ -365,3 +365,38 @@ def test_mock_and_simulation_stay_synchronous(model):
     assert expand(model, True, "scheduling_policy:=detached").get("is_async") == "False"
     topic_based = expand(model, False, TOPIC_BASED_ARG, "scheduling_policy:=detached")
     assert topic_based.get("is_async") == "False"
+
+
+def expand_robot(model, *extra_args):
+    """Run xacro on `model` and return the whole parsed robot."""
+    result = subprocess.run(
+        ["xacro", str(URDF_DIR / model), *extra_args],
+        capture_output=True,
+        text=True,
+    )
+    return result
+
+
+@requires_xacro
+def test_finger_tip_pad_size_replaces_the_2f_85_finger_tip_meshes():
+    model = "robotiq_2f_85_gripper.urdf.xacro"
+    for side in ("left", "right"):
+        stock = ET.fromstring(expand_robot(model).stdout)
+        tip = stock.find(f"link[@name='robotiq_85_{side}_finger_tip_link']")
+        assert tip.find("visual/geometry/mesh") is not None
+
+        padded = ET.fromstring(
+            expand_robot(model, "finger_tip_pad_size:=0.004 0.027 0.057").stdout
+        )
+        tip = padded.find(f"link[@name='robotiq_85_{side}_finger_tip_link']")
+        assert tip.find("visual/geometry/box").get("size") == "0.004 0.027 0.057"
+        assert tip.find("collision/geometry/box").get("size") == "0.004 0.027 0.057"
+
+
+@requires_xacro
+def test_finger_tip_pad_size_is_rejected_for_the_2f_140():
+    result = expand_robot(
+        "robotiq_2f_140_gripper.urdf.xacro", "finger_tip_pad_size:=0.004 0.027 0.057"
+    )
+    assert result.returncode != 0
+    assert "finger_tip_pad_size" in result.stderr

@@ -1,5 +1,85 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://wiki.ros.org/xacro" name="robotiq_gripper">
+    <!-- Visual, collision and inertial of an adjustable finger tip link.
+         finger_tip_pad_size empty: the default finger-tip meshes.
+         finger_tip_pad_size "x y z" (m): a box primitive instead - x thick in the closing direction,
+         y wide, z long. Its gripping face stays at the stock pad's (local x = gripping_face_x)
+         and its tip at the stock tip (local z = 0.051), so grasp widths and the TCP do not
+         change; the box only grows outward and back from there.
+         The box pad inertial is also computed based on its size. -->
+    <xacro:macro name="robotiq_2f_85_finger_tip_geometry"
+                 params="side gripping_face_x outward_x pad_center_y stock_com_xyz stock_ixz finger_tip_pad_size">
+        <xacro:if value="${finger_tip_pad_size != ''}">
+            <xacro:property name="pad" value="${[float(v) for v in finger_tip_pad_size.split()]}" />
+            <xacro:property name="pad_xyz" value="${gripping_face_x + outward_x * pad[0] / 2} ${pad_center_y} ${0.051 - pad[2] / 2}" />
+            <xacro:property name="pad_mass" value="${1760.0 * pad[0] * pad[1] * pad[2]}" />
+        </xacro:if>
+        <visual>
+            <xacro:if value="${finger_tip_pad_size == ''}">
+                <geometry>
+                    <mesh filename="package://robotiq_description/meshes/visual/2f_85/${side}_finger_tip.dae" />
+                </geometry>
+            </xacro:if>
+            <xacro:unless value="${finger_tip_pad_size == ''}">
+                <origin xyz="${pad_xyz}" rpy="0 0 0" />
+                <geometry>
+                    <box size="${pad[0]} ${pad[1]} ${pad[2]}" />
+                </geometry>
+                <material name="robotiq_2f_85_${side}_finger_pad">
+                    <color rgba="0.1 0.1 0.1 1.0" />
+                </material>
+            </xacro:unless>
+        </visual>
+        <collision>
+            <xacro:if value="${finger_tip_pad_size == ''}">
+                <geometry>
+                    <mesh filename="package://robotiq_description/meshes/collision/2f_85/${side}_finger_tip.stl" />
+                </geometry>
+            </xacro:if>
+            <xacro:unless value="${finger_tip_pad_size == ''}">
+                <origin xyz="${pad_xyz}" rpy="0 0 0" />
+                <geometry>
+                    <box size="${pad[0]} ${pad[1]} ${pad[2]}" />
+                </geometry>
+            </xacro:unless>
+            <surface>
+                <friction>
+                <ode>
+                    <mu1>100000.0</mu1>
+                    <mu2>100000.0</mu2>
+                </ode>
+                </friction>
+                <contact>
+                <ode>
+                    <kp>1e+5</kp>
+                    <kd>1</kd>
+                    <soft_cfm>0</soft_cfm>
+                    <soft_erp>0.2</soft_erp>
+                    <minDepth>0.002</minDepth>
+                    <maxVel>0</maxVel>
+                </ode>
+                </contact>
+            </surface>
+        </collision>
+        <xacro:if value="${finger_tip_pad_size == ''}">
+            <inertial>
+                <origin xyz="${stock_com_xyz}" rpy="0 0 0" />
+                <mass value="4.268588744e-02" />
+                <inertia ixx="1.048152e-05" iyy="1.197888e-05" izz="4.22784e-06" ixy="0.0" ixz="${stock_ixz}" iyz="0.0" />
+            </inertial>
+        </xacro:if>
+        <xacro:unless value="${finger_tip_pad_size == ''}">
+            <inertial>
+                <origin xyz="${pad_xyz}" rpy="0 0 0" />
+                <mass value="${pad_mass}" />
+                <inertia ixx="${pad_mass / 12 * (pad[1]**2 + pad[2]**2)}"
+                         iyy="${pad_mass / 12 * (pad[0]**2 + pad[2]**2)}"
+                         izz="${pad_mass / 12 * (pad[0]**2 + pad[1]**2)}"
+                         ixy="0.0" ixz="0.0" iyz="0.0" />
+            </inertial>
+        </xacro:unless>
+    </xacro:macro>
+
     <xacro:macro name="robotiq_gripper" params="
         name
         prefix
@@ -28,7 +108,8 @@
         gripper_force_multiplier:=0.5
         gripper_max_speed:=0.150
         gripper_max_force:=235.0
-        gripper_closed_position:=0.7929">
+        gripper_closed_position:=0.7929
+        finger_tip_pad_size:=''">
 
         <!-- PickNik's names for the topic-based path, released in 1.1.0 and
              deprecated since 1.2.0. sim_isaac keeps its old /isaac_joint_* topic
@@ -196,75 +277,17 @@
         </link>
 
         <link name="${prefix}robotiq_85_left_finger_tip_link">
-            <visual>
-                <geometry>
-                    <mesh filename="package://robotiq_description/meshes/visual/2f_85/left_finger_tip.dae" />
-                </geometry>
-            </visual>
-            <collision>
-                <geometry>
-                    <mesh filename="package://robotiq_description/meshes/collision/2f_85/left_finger_tip.stl" />
-                </geometry>
-                <surface>
-                    <friction>
-                    <ode>
-                        <mu1>100000.0</mu1>
-                        <mu2>100000.0</mu2>
-                    </ode>
-                    </friction>
-                    <contact>
-                    <ode>
-                        <kp>1e+5</kp>
-                        <kd>1</kd>
-                        <soft_cfm>0</soft_cfm>
-                        <soft_erp>0.2</soft_erp>
-                        <minDepth>0.002</minDepth>
-                        <maxVel>0</maxVel>
-                    </ode>
-                    </contact>
-                </surface>
-            </collision>
-            <inertial>
-                <origin xyz="-0.01456706 -0.0008 0.01649701" rpy="0 0 0" />
-                <mass value="4.268588744e-02" />
-                <inertia ixx="1.048152e-05" iyy="1.197888e-05" izz="4.22784e-06" ixy="0.0" ixz="3.5232e-6" iyz="0.0" />
-            </inertial>
+            <xacro:robotiq_2f_85_finger_tip_geometry
+                side="left" gripping_face_x="-0.0252" outward_x="1" pad_center_y="-0.0008"
+                stock_com_xyz="-0.01456706 -0.0008 0.01649701" stock_ixz="3.5232e-6"
+                finger_tip_pad_size="${finger_tip_pad_size}" />
         </link>
 
         <link name="${prefix}robotiq_85_right_finger_tip_link">
-            <visual>
-                <geometry>
-                    <mesh filename="package://robotiq_description/meshes/visual/2f_85/right_finger_tip.dae" />
-                </geometry>
-            </visual>
-            <collision>
-                <geometry>
-                    <mesh filename="package://robotiq_description/meshes/collision/2f_85/right_finger_tip.stl" />
-                </geometry>
-                <surface>
-                    <friction>
-                    <ode>
-                        <mu1>100000.0</mu1>
-                        <mu2>100000.0</mu2>
-                    </ode>
-                    </friction>
-                    <contact>
-                    <ode>
-                        <kp>1e+5</kp>
-                        <kd>1</kd>
-                        <soft_cfm>0</soft_cfm>
-                        <soft_erp>0.2</soft_erp>
-                        <minDepth>0.002</minDepth>
-                        <maxVel>0</maxVel>
-                    </ode>
-                    </contact>
-                </surface>
-            </collision>
-            <inertial>
-                <origin xyz="0.01456706 5e-05 0.01649701" rpy="0 0 0" />
-                <mass value="4.268588744e-02" />
-                <inertia ixx="1.048152e-05" iyy="1.197888e-05" izz="4.22784e-06" ixy="0.0" ixz="-3.5232e-06" iyz="0.0" />
-            </inertial>
+            <xacro:robotiq_2f_85_finger_tip_geometry
+                side="right" gripping_face_x="0.0252" outward_x="-1" pad_center_y="0.0001"
+                stock_com_xyz="0.01456706 5e-05 0.01649701" stock_ixz="-3.5232e-06"
+                finger_tip_pad_size="${finger_tip_pad_size}" />
         </link>
 
         <joint name="${prefix}robotiq_85_base_joint" type="fixed">

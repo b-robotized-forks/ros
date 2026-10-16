@@ -263,6 +263,10 @@ def xacro_command():
             "cpu_affinity:=",
             LaunchConfiguration("cpu_affinity"),
             " ",
+            # Quoted: the value is three space-separated numbers.
+            "finger_tip_pad_size:='",
+            LaunchConfiguration("finger_tip_pad_size"),
+            "' ",
             "sim_topic_based:=",
             LaunchConfiguration("sim_topic_based"),
             " ",
@@ -382,6 +386,13 @@ def generate_launch_description():
             name="cpu_affinity",
             default_value="",
             description="CPU cores of the async thread as a list, e.g. '[2,3]'; empty leaves it to the scheduler",
+        )
+    )
+    args.append(
+        launch.actions.DeclareLaunchArgument(
+            name="finger_tip_pad_size",
+            default_value="",
+            description="2F-85 only: box finger pads 'x y z' in m instead of the stock finger tips; empty keeps the stock ones",
         )
     )
     args.append(

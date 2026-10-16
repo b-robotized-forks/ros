@@ -350,6 +350,7 @@ def test_launch_forwards_the_gripper_model_to_xacro():
         scheduling_policy="",
         thread_priority="50",
         cpu_affinity="",
+        finger_tip_pad_size="",
         sim_topic_based="false",
         sim_joint_commands_topic="/sim/joint_commands",
         sim_joint_states_topic="/sim/joint_states",

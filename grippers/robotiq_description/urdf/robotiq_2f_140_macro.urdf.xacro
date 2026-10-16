@@ -28,7 +28,13 @@
         gripper_force_multiplier:=0.5
         gripper_max_speed:=0.250
         gripper_max_force:=125.0
-        gripper_closed_position:=0.695">
+        gripper_closed_position:=0.695
+        finger_tip_pad_size:=''">
+
+        <!-- Accepted so one top-level xacro serves both models; only the 2F-85 has box pads. -->
+        <xacro:if value="${finger_tip_pad_size != ''}">
+            ${xacro.fatal('finger_tip_pad_size is supported only for the 2F-85, not the 2F-140')}
+        </xacro:if>
 
         <!-- PickNik's names for the topic-based path, released in 1.1.0 and
              deprecated since 1.2.0. sim_isaac keeps its old /isaac_joint_* topic
