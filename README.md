@@ -445,6 +445,31 @@ Use only one client of the forwarder: disable `use_tool_communication` in the UR
 
 When the connection is lost, the link reports `Faulted` as with an unplugged USB cable, and the driver connects again about once per second until the forwarder answers.
 
+### Asynchronous execution
+
+The real driver can run in its own `ros2_control` thread, outside the controller manager's loop, as the UR and Franka drivers do.
+`robotiq_control.launch.py` and the xacro macros of both models take these arguments:
+
+| Argument | Default | Description |
+|---|---|---|
+| `scheduling_policy` | empty | `detached` or `synchronized` makes the component async; empty keeps it synchronous |
+| `rw_rate` | `0` | `read()` / `write()` rate in Hz; `0` uses the controller manager's rate |
+| `thread_priority` | `50` | Priority of the async thread |
+| `cpu_affinity` | empty | Cores of the async thread as a list, e.g. `[2,3]` |
+
+```bash
+ros2 launch robotiq_description robotiq_control.launch.py use_fake_hardware:=false \
+  scheduling_policy:=detached rw_rate:=100 "cpu_affinity:=[2,3]"
+```
+
+Mock hardware and the simulator plugins always stay synchronous.
+
+### Finger tip pads (2F-85)
+
+`finger_tip_pad_size:="x y z"` (in m) replaces the 2F-85 finger tip meshes by box pads, with visual, collision and inertial: x thick in the closing direction, y wide, z long.
+The gripping face and the tip stay where the stock pad has them, so grasp widths and the TCP do not change.
+Empty keeps the stock meshes. The 2F-140 rejects the argument.
+
 ### Activation, faults and recovery
 
 Activating the hardware component runs the gripper's reset handshake: it clears any latched fault and runs the calibration sweep. **It therefore releases any grip and moves the fingers through their full range** — activate with the workspace clear. Deactivating clears the command block including rACT, which resets the gripper and likewise releases any grip. This is what the driver has always done; the SDK exposes a conservative alternative (leave a healthy gripper alone, refuse to reset a faulted one) that is not wired up here yet.
